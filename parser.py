@@ -24,6 +24,9 @@ def parse_manually_generated(manually_generated: List[str]) -> Dict[str, str]:
 
     return ret
 
+# FIXME: This should be a parameter
+# if relative it's relative to the rootdir
+BUILD_CUSTOMIZATION_DIRECTORY = "bazel/cpp"
 
 def main():
 
@@ -135,7 +138,8 @@ def main():
     start = time.time()
     logging.info("Generating Bazel BUILD files from buildTargets")
     logging.info(f"There is {len(top_levels_targets)} top level targets")
-    output = genBazelBuildFiles(top_levels_targets, rootdir, prefix)
+
+    output = genBazelBuildFiles(top_levels_targets, rootdir, prefix, BUILD_CUSTOMIZATION_DIRECTORY)
     end = time.time()
     print(f"Time to generate Bazel's BUILD files: {end - start}", file=sys.stdout)
     logging.info("Done")

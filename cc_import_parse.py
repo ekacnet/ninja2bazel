@@ -90,6 +90,9 @@ def parseCCImports(raw_imports: list[str], location: str) -> list[BazelCCImport]
                 # Force this external repo
                 current.setLocation("@cpp_ext_libs//")
                 current.setPhysicalLocation(location)
+            if attribute == "alias":
+                assert current is not None
+                current.setAlias(cleanupVar(val))
             if attribute in ["interface_library", "shared_library"]:
                 assert current is not None
                 current.setSharedLibrarys(cleanupVar(val))

@@ -7,7 +7,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 from bazel import BazelBuild, BazelCCImport, BazelTarget
 from build import (Build, BuildTarget, Rule, TargetType,
@@ -983,14 +983,13 @@ def _printNiceDict(d: dict[str, Any]) -> str:
     return "".join([f"  {k}: {v}\n" for k, v in d.items()])
 
 
-def genBazel(buildTarget: BuildTarget, bb: BazelBuild, rootdir: str):
-
+def genBazel(buildTarget: BuildTarget, bb: BazelBuild, rootdir: str, flagsToIgnore: List[str]):
     if rootdir.endswith("/"):
         dir = rootdir
     else:
         dir = f"{rootdir}/"
 
-    ctx = BazelBuildVisitorContext(False, dir, bb)
+    ctx = BazelBuildVisitorContext(False, dir, bb, flagsToIgnore)
 
     visitor = BuildVisitor.getVisitor()
 
@@ -1051,20 +1050,36 @@ def printGraph(element: BuildTarget, ident: int = 0, file=sys.stdout):
 
 
 def genBazelBuildFiles(
-    top_levels: list[BuildTarget], rootdir: str, prefix: str
+    top_levels: list[BuildTarget], rootdir: str, prefix: str, buildCustomizationDirectory: str
 ) -> Dict[str, str]:
     bb = BazelBuild(prefix)
-    #FIXME don't hard code instead load it from a file
-    filename = f"{rootdir}/bazel/cpp/postprocessing.py"
-    if os.path.exists(filename):
-        sys.path.append(f"{rootdir}/bazel/cpp")
+    if buildCustomizationDirectory.startswith("/"):
+        dir = buildCustomizationDirectory
+    else:
+        dir = f"{rootdir}{buildCustomizationDirectory}"
+
+    flagsToIgnore: List[str] = []
+    commonFlags: Dict[str, Dict[str, Union[str, Set[str]]]] = {}
+    additionalsBazelIncludes: Dict[str, List[str]] = {}
+
+    postprocessingFilename= f"{dir}/postprocessing.py"
+    logging.info(f"Looking for postprocessing file {postprocessingFilename}")
+    if os.path.exists(postprocessingFilename):
+        sys.path.append(dir)
         import postprocessing as pp # type: ignore
+        flagsToIgnore = pp.getFlagsToIgnore()
+        logging.info(f"Flags to ignore {flagsToIgnore}")
+        commonFlags = pp.getCommonFlags()
+        additionalsBazelIncludes = pp.getAdditionalBazelIncludes()
         for e in pp.postProcessingList:
             bb.addPostProcess(e[0], e[1], e[2])
+            bb.setCommonFlags(commonFlags)
+            bb.setAdditionalBazelHeaders(additionalsBazelIncludes)
+
 
     for e in sorted(top_levels):
         e.markTopLevel()
-        genBazel(e, bb, rootdir)
+        genBazel(e, bb, rootdir, flagsToIgnore)
 
     bb.cleanup()
 

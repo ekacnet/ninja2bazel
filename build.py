@@ -44,6 +44,7 @@ chmod a+x $@
 class BazelBuildVisitorContext(VisitorContext):
     rootdir: str
     bazelbuild: BazelBuild
+    flagsToIgnore: List[str]
     current: Optional[BaseBazelTarget] = None
     producer: Optional["Build"] = None
     next_current: Optional[BaseBazelTarget] = None
@@ -1160,35 +1161,41 @@ class Build:
         build = el.producedby
         assert build is not None
 
+        flagsNotToKeep = [
+            "-g",
+            "-DNDEBUG",
+            "-fPIC",
+        ]
+        prefixNotToKeep = [
+            "-O",
+            "-march",
+            "-mtune",
+            "-std="
+        ]
+        def flagMatchPrefix(flag: str) -> bool:
+            for prefix in prefixNotToKeep:
+                if flag.startswith(prefix):
+                    return True
+            return False
         for define in self.vars.get("DEFINES", "").split(" "):
-            ctx.current.addDefine(f'"{define[2:]}"')
+            if define in flagsNotToKeep:
+                pass
+            elif define in ctx.flagsToIgnore:
+                pass
+            else:
+                ctx.current.addDefine(f'"{define[2:]}"')
 
         for flag in self.vars.get("FLAGS", "").split(" "):
             keep = True
-            if flag.startswith("-D"):
+            if flag in flagsNotToKeep:
+                keep = False
+            elif flag in ctx.flagsToIgnore:
+                keep = False
+            elif flag.startswith("-D"):
                 ctx.current.addDefine(f'"{flag[2:]}"')
                 keep = False
                 continue
-            if flag.startswith("-std="):
-                # Let's not keep the c++ standard flag
-                keep = False
-            if flag == "-g":
-                # Let's not keep the debug flag
-                keep = False
-            if flag == "-DNDEBUG":
-                # Let's not keep the debug flag
-                keep = False
-            if flag.startswith("-O"):
-                # Let's not keep the optimization flag
-                keep = False
-            if flag.startswith("-march"):
-                # Let's not keep the architecture flag
-                keep = False
-            if flag.startswith("-mtune"):
-                # Let's not keep the architecture tunning flag
-                keep = False
-            if flag.startswith("-fPIC"):
-                # Let's not keep the optimization flag
+            elif flagMatchPrefix(flag):
                 keep = False
             # Maybe some flags like -fdebug-info-for-profiling
             if keep:
