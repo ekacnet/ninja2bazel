@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from enum import Enum
 from functools import total_ordering
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
-
+from helpers import resolvePath
 from bazel import (BaseBazelTarget, BazelBuild, BazelCCImport,
                    BazelCCProtoLibrary, BazelExternalDep, BazelGenRuleTarget,
                    BazelGRPCCCProtoLibrary, BazelProtoLibrary, BazelTarget,
@@ -1268,6 +1268,17 @@ class Build:
                         if fin.name in cmd:
                             found = True
                             break
+                if not found:
+                    # Try a bit harder to find the input file
+                    arr2 = filter(lambda x: x.startswith("/"), cmd.split(" "))
+                    for fin in self._inputs:
+                        if not fin.is_a_file:
+                            continue
+                        for fin2 in arr2:
+                            fin2 = resolvePath(fin2)
+                            if fin2 == fin.name:
+                                found = True
+                                break
             if "$in" in cmd and ("$out" in cmd or "$TARGET_FILE" in cmd):
                 found = True
                 break
