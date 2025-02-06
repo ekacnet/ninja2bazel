@@ -570,7 +570,8 @@ class BazelTarget(BaseBazelTarget):
 
     def depName(self):
         name = self.name
-        name = name.replace("/", "_")
+        if self.type == "cc_library":
+            name = name.replace("/", "_")
         if self.type == "cc_library" or self.type == "cc_shared_library":
             if not name.startswith("lib") and self.addPrefixIfRequired:
                 name = f"lib{name}"
