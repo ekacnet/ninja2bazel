@@ -950,7 +950,7 @@ class Build:
                         ctx.current.addHdr(t)
                 # The current buildTarget is a C/C++ file it means that the current build (ie. binary/test/lib)
                 # has it as input, so we add it as a src to the current bazelTarget
-                if (
+                elif (
                     t.name.endswith(".c")
                     or t.name.endswith(".cc")
                     or t.name.endswith(".cpp")
@@ -958,6 +958,10 @@ class Build:
                     ctx.current.addSrc(t)
                     logging.debug(f"Found {t} in {ctx.current.name} CC")
                     self._handleIncludeBazelTarget(el, ctx, workDir)
+                else:
+                    logging.info(f"Adding {t} to {ctx.current.name}")
+                    assert isinstance(ctx.current, BazelTarget)
+                    ctx.current.addData(t)
             elif ctx.current is not None:
                 logging.warn(f"No dest for custom command: {el}")
                 [ctx.current.addDep(o) for o in outs]

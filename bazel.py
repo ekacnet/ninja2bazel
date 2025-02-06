@@ -557,12 +557,16 @@ class BazelTarget(BaseBazelTarget):
         self.addPrefixIfRequired: bool = True
         self.copts: set[str] = set()
         self.defines: set[str] = set()
+        self.data: set[BaseBazelTarget] = set()
 
     def addCopt(self, opt: str):
         self.copts.add(opt)
 
     def addDefine(self, define: str):
         self.defines.add(define)
+
+    def addData(self, target: BaseBazelTarget):
+        self.data.add(target)
 
     def depName(self):
         name = self.name
@@ -627,7 +631,7 @@ class BazelTarget(BaseBazelTarget):
         deps_deps = set(self.getAllDeps(deps_only=True))
         deps: Set[Union[BaseBazelTarget, BazelCCImport]] = set()
         headers = []
-        data: List[BaseBazelTarget] = []
+        data: List[BaseBazelTarget] = list(self.data)
         for d in self.deps:
             if d not in deps_deps:
                 deps.add(d)
