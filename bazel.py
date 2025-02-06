@@ -646,7 +646,7 @@ class BazelTarget(BaseBazelTarget):
                     headers.append(h)
                 else:
                     if self.type != "cc_library":
-                        logging.warn(
+                        logging.warning(
                             f"There is some kind of header that didn't match .h/.hpp/.tcc adding to data but it's likely to not work well"
                         )
                         data.append(h)
@@ -681,8 +681,8 @@ class BazelTarget(BaseBazelTarget):
             "hdrs": headers,
             "copts": list(copts),
             "defines": list(self.defines),
-            "linkopts": linkopts,
             "data": data,
+            "linkopts": linkopts,
             "deps": list(deps),
         }
         if self.type == "cc_binary" or self.type == "cc_test":
