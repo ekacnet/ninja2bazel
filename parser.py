@@ -61,6 +61,12 @@ def main():
         action="append",
         help="A file containing a list of cc_imports to be added to the BUILD files",
     )
+    parser.add_argument(
+        "--top-level-target",
+        action="append",
+        help="The name of top level target(s) to be generated, if not specified all targets will be generated",
+    )
+
     args = parser.parse_args()
 
     filename = args.filename
@@ -134,6 +140,7 @@ def main():
         remap,
         cc_imports,
         compilerIncludes,
+        args.top_level_target or ["all"],
     )
     end = time.time()
     print(f"Time to getBuildTargets: {end - start}", file=sys.stdout)
