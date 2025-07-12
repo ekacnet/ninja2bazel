@@ -13,6 +13,8 @@ from ninjabuild import genBazelBuildFiles, getBuildTargets
 
 def parse_manually_generated(manually_generated: List[str]) -> Dict[str, str]:
     ret = {}
+    if not manually_generated:
+        return ret
     for e in manually_generated:
         if "=" not in e:
             logging.fatal(
@@ -75,7 +77,7 @@ def main():
 
     raw_imports = []
     location = ""
-    if len(args.imports) > 0:
+    if len(args.imports or []) > 0:
         for i in args.imports:
             if not os.path.exists(i):
                 logging.fatal(f"Imports file {i} does not exist")
