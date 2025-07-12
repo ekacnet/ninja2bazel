@@ -4,8 +4,8 @@ import logging
 import os
 import subprocess
 import sys
-from typing import Dict, List
 import time
+from typing import Dict, List
 
 from cc_import_parse import parseCCImports
 from ninjabuild import genBazelBuildFiles, getBuildTargets
@@ -26,12 +26,13 @@ def parse_manually_generated(manually_generated: List[str]) -> Dict[str, str]:
 
     return ret
 
+
 # FIXME: This should be a parameter
 # if relative it's relative to the rootdir
 BUILD_CUSTOMIZATION_DIRECTORY = "bazel/cpp"
 
-def main():
 
+def main():
     logging.basicConfig(
         level=logging.INFO,
         format="%(name)s - %(levelname)s - %(message)s - Line: %(lineno)d",
@@ -148,7 +149,9 @@ def main():
     logging.info("Generating Bazel BUILD files from buildTargets")
     logging.info(f"There is {len(top_levels_targets)} top level targets")
 
-    output = genBazelBuildFiles(top_levels_targets, rootdir, prefix, BUILD_CUSTOMIZATION_DIRECTORY)
+    output = genBazelBuildFiles(
+        top_levels_targets, rootdir, prefix, BUILD_CUSTOMIZATION_DIRECTORY
+    )
     end = time.time()
     print(f"Time to generate Bazel's BUILD files: {end - start}", file=sys.stdout)
     logging.info("Done")

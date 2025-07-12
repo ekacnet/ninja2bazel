@@ -18,8 +18,6 @@ class VisitorContext:
         pass
 
 
-
 @dataclass
 class PrunedVisitorContext:
-    visited:Set[object] =  field(default_factory=set, hash=False)
-
+    visited: Set[object] = field(default_factory=set, hash=False)
