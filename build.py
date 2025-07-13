@@ -20,6 +20,7 @@ from bazel import (
     ShBinaryBazelTarget,
     getObject,
 )
+
 from visitor import VisitorContext
 
 VisitorType = Callable[["BuildTarget", "VisitorContext", bool], bool]
@@ -343,7 +344,15 @@ class BuildTarget:
                     logging.info(
                         f"{self.name} is phony ctx.producer = {ctx.producer}, parent build(s): {builds}"
                     )
-                el.visitGraph(visitor, newctx)
+                logging.debug(
+                    f"Visiting {el.name} from {self.name} ctx.producer = {ctx.producer}"
+                )
+                if el.name != self.name:
+                    el.visitGraph(visitor, newctx)
+                else:
+                    logging.warning(
+                        f"Skipping visiting {el.name} from {self.name} because they are the same"
+                    )
             for el in sorted(self.producedby.depends):
                 if not el.depsAreVirtual():
                     newctx = ctx.setup_subcontext()
