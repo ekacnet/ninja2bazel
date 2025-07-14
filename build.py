@@ -1076,11 +1076,32 @@ class Build:
     ) -> bool:
         location = TopLevelGroupingStrategy().getBuildFilenamePath(el)
         if self.associatedBazelTarget is None:
-            # FIXME maybe a cc_test here ?
-            t = getObject(BazelTarget, "cc_binary", el.name, location)
-            nextCurrent = t
+            stripDirectoryPrefix = True
+            if stripDirectoryPrefix:
+                name = el.shortName.split("/")[-1]
+            else:
+                name = el.shortName.replace("/", "_").replace(".", "_")
+
+            logging.info(f"Creating cc_library/cc_binary/cc_test for {el.name}")
+            if el.name.endswith(".a"):
+                t = getObject(
+                    BazelTarget,
+                    "cc_library",
+                    name[:-2],
+                    location,
+                )
+                t.addPrefixIfRequired = False
+                nextCurrent = t
+            else:
+                logging.info(f"Creating cc_binary/cc_test for {name}")
+                if el.name.endswith("_test"):
+                    t = getObject(BazelTarget, "cc_test", name, location)
+                else:
+                    t = getObject(BazelTarget, "cc_binary", name, location)
+
             ctx.bazelbuild.bazelTargets.add(t)
             self.setAssociatedBazelTarget(t)
+            nextCurrent = t
         else:
             tmp = self.associatedBazelTarget
             assert isinstance(tmp, BazelTarget)
@@ -1098,19 +1119,26 @@ class Build:
         continueVisit = True
         location = TopLevelGroupingStrategy().getBuildFilenamePath(el)
         if self.associatedBazelTarget is None:
+            # Make it configurable at some point
+            stripDirectoryPrefix = True
+            if stripDirectoryPrefix:
+                name = el.shortName.split("/")[-1]
+            else:
+                name = el.shortName.replace("/", "_").replace(".", "_")
+
             logging.info(f"Creating cc_library/cc_binary/cc_test for {el.name}")
             if self.vars.get("SONAME") is not None:
                 staticLibTarget = getObject(
                     BazelTarget,
                     "cc_library",
-                    el.shortName.replace("/", "_"),
+                    name,
                     location,
                 )
                 staticLibTarget.addPrefixIfRequired = False
                 t = getObject(
                     BazelTarget,
                     "cc_shared_library",
-                    "shared_" + el.shortName.replace("/", "_"),
+                    "shared_" + name,
                     location,
                 )
 
@@ -1120,11 +1148,21 @@ class Build:
                 nextCurrent = staticLibTarget
                 # Bazel wants only libraries not shared as dependencies
                 t = staticLibTarget
+            elif el.name.endswith(".a"):
+                t = getObject(
+                    BazelTarget,
+                    "cc_library",
+                    name[:-2],
+                    location,
+                )
+                t.addPrefixIfRequired = False
+                nextCurrent = t
             else:
+                logging.info(f"Creating cc_binary/cc_test for {name}")
                 if el.name.endswith("_test"):
-                    t = getObject(BazelTarget, "cc_test", el.name, location)
+                    t = getObject(BazelTarget, "cc_test", name, location)
                 else:
-                    t = getObject(BazelTarget, "cc_binary", el.name, location)
+                    t = getObject(BazelTarget, "cc_binary", name, location)
                 nextCurrent = t
             ctx.bazelbuild.bazelTargets.add(t)
             self.setAssociatedBazelTarget(t)
