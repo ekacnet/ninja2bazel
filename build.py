@@ -987,8 +987,9 @@ class Build:
                 logging.warn(f"No dest for custom command: {el}")
                 [ctx.current.addDep(o) for o in outs]
 
+        current_context_name = ctx.current.name if ctx.current else ""
         logging.info(
-            f"Settings current to {genTarget.name} for {el.name}, previous: {ctx.current.name}"
+            f"Settings current to {genTarget.name} for {el.name} , previous: {current_context_name}"
         )
         # I'm questioning the logic behind that as of July 2025 as there are a lot of things that
         # can't be added to a BazelGenRuleTarget
