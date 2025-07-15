@@ -75,7 +75,9 @@ class BuildVisitor:
                 if el.type == TargetType.manually_generated:
                     Build.handleManuallyGeneratedForBazelGen(ctx, el)
                     return True
-                Build.handleFileForBazelGen(el, ctx)
+                Build.handleFileForBazelGen(
+                    el, ctx, parentBuild.vars.get("cmake_ninja_workdir", "")
+                )
                 return True
 
         return visitor

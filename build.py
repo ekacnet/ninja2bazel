@@ -442,8 +442,12 @@ class Build:
         filename: str,
         locationCaller: str,
         fileLocation: Optional[str] = None,
+        ispregenerated: bool = False,
     ) -> ExportedFile:
         ef = cls.staticFiles.get(filename)
+        logging.debug(
+            f"Generating ExportedFile for {filename} is pregenerated = {ispregenerated} at {locationCaller} {ef}"
+        )
         if not ef:
             keepPrefix = False
             if fileLocation is None:
@@ -454,6 +458,9 @@ class Build:
                 )
             else:
                 keepPrefix = True
+            if ispregenerated:
+                fileLocation = f"pregenerated/{fileLocation}"
+            logging.debug(f"Checking if {fileLocation} needs replacement")
             for k, v in cls.remapPaths.items():
                 if fileLocation.startswith(k):
                     fileLocation = fileLocation.replace(k, v)
@@ -482,9 +489,8 @@ class Build:
         cls,
         el: "BuildTarget",
         ctx: BazelBuildVisitorContext,
+        workDir: Union[str, None] = None,
     ):
-        if el.shortName.endswith("execute_query_handler.cc"):
-            logging.info(f"About to add {el.name} with includes {el.includes}")
         if (
             el.type == TargetType.external
             and el.opaque is None
@@ -531,6 +537,9 @@ class Build:
                     )
                     ctx.bazelbuild.bazelTargets.add(protoDep)
                     ctx.current.addDep(protoDep)
+            elif isinstance(dep, ExportedFile):
+                ctx.bazelbuild.bazelTargets.add(dep)
+                pass
             elif isinstance(dep.opaque, BazelCCImport):
                 imp = dep.opaque
                 if imp.name == "protobuf":
@@ -636,13 +645,15 @@ class Build:
                 logging.debug(f"Dealing with external dep {el.name}")
                 return
             # Not produced aka it's a file
-            ctx.current.addSrc(cls._genExportedFile(el.shortName, ctx.current.location))
+            v = ctx.rootdir
+            ctx.current.addSrc(
+                cls._genExportedFile(
+                    el.shortName, ctx.current.location, None, not el.name.startswith(v)
+                )
+            )
 
             if el.includes is None:
                 return
-            workDir = None
-            if el.producedby is not None:
-                workDir = el.producedby.vars.get("cmake_ninja_workdir", "")
             logging.info(
                 f"Handling includes for {el.name} with includes {el.includes} in {ctx.current.name}"
             )
@@ -656,11 +667,17 @@ class Build:
     ):
         for i, d in el.includes:
             generated = False
+            pregenerated = False
             if d is None:
                 includeDir = None
             elif d.startswith(ctx.rootdir):
                 includeDir = d.replace(ctx.rootdir, "")
+            elif workDir is not None and d.startswith(f"{workDir}pregenerated"):
+                logging.info(f"Found pregenerated include dir in workDir for {i} {d}")
+                includeDir = d.replace(workDir, "")
+                pregenerated = True
             elif workDir is not None and d.startswith(workDir):
+                logging.info(f"Found include dir in workDir for {i} {d}")
                 includeDir = d.replace(workDir, "")
                 generated = True
             elif d.startswith("/generated"):
@@ -679,20 +696,21 @@ class Build:
                 continue
             else:
                 # This should never be visited
-                logging.error(f"{el.name} depends on {i} in {d}")
+                logging.error(f"{el.name} depends on {i} in {d} {workDir}")
                 includeDir = "This is wrong"
 
             if isinstance(ctx.current, BazelTarget):
                 # logging.info(f"Adding header {i} using include {includeDir} from {el.name} {generated} to {ctx.current.name}")
                 if includeDir is not None:
-                    ctx.current.addHdr(
-                        cls._genExportedFile(i, ctx.current.location),
-                        (includeDir, generated),
-                    )
+                    if pregenerated:
+                        ef = cls._genExportedFile(i, ctx.current.location, None, True)
+                    else:
+                        ef = cls._genExportedFile(i, ctx.current.location)
+                    ctx.current.addHdr(ef, (includeDir, generated))
                 else:
-                    ctx.current.addHdr(
-                        cls._genExportedFile(i, ctx.current.location),
-                    )
+                    ef = cls._genExportedFile(i, ctx.current.location)
+                    ctx.bazelbuild.bazelTargets.add(ef)
+                    ctx.current.addHdr(ef)
             else:
                 logging.warn(
                     f"{i} is a header file but {ctx.current} is not a BazelTarget that can have headers"
