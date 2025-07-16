@@ -391,6 +391,7 @@ class BazelBuild:
         content: Dict[str, List[str]] = {}
         lastLocation = None
         targets = set(self.bazelTargets)
+        extensions_per_location: Dict[str, Set[str]] = {}
         for t in sorted(targets):
             try:
                 if t.location.startswith("@"):
@@ -400,8 +401,17 @@ class BazelBuild:
                     location = t.location
                 commonLocationFlags = self.commonFlags.get(location, {})
                 body = content.get(location, [])
-                body.append(f"# Location {location}")
-                for k, v2 in t.asBazel(commonLocationFlags).items():
+                if isinstance(t, ExportedFile):
+                    extensions_per_location.setdefault(location, set()).add(
+                        t.name.split(".")[-1]
+                    )
+                    continue
+                items = t.asBazel(commonLocationFlags).items()
+                if len(items):
+                    body.append(f"# Location {location}")
+                if location == "src":
+                    logging.info(t)
+                for k, v2 in items:
                     # Do post processing here
                     if self.postProcess.get(f"{k}{location}"):
                         v2 = self.postProcess[f"{k}{location}"](v2)
@@ -422,6 +432,16 @@ class BazelBuild:
                 raise
             if lastLocation is not None:
                 content[lastLocation].append("")
+        for location, exts in extensions_per_location.items():
+            if location not in content:
+                topContent.setdefault(location, set())
+                content[location] = []
+                content[location].append("exports_files(")
+                content[location].append("  glob([")
+                for ext in sorted(exts):
+                    content[location].append(f'    "**/*.{ext}",')
+                content[location].append("]))")
+
         for k, v in topContent.items():
             topStanza = list(filter(lambda x: x != "", v))
             if len(topStanza) > 0:
@@ -641,6 +661,8 @@ class BazelTarget(BaseBazelTarget):
                     or h.name.endswith(".hpp")
                     or h.name.endswith(".tcc")
                 ):
+                    headers.append(h)
+                elif h.name.endswith(".cpp"):
                     headers.append(h)
                 else:
                     if self.type != "cc_library":
