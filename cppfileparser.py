@@ -59,6 +59,7 @@ def _findCPPIncludeForFile(
     generatedFiles: Dict[str, Any],
     generatedDir: Optional[str],
     workDir: str,
+    srcDir: str,
 ) -> Tuple[bool, CPPIncludes]:
     found = False
     ret = CPPIncludes(set(), set(), set(), set())
@@ -160,11 +161,16 @@ def _findCPPIncludeForFile(
                 ret.foundHeaders.add(
                     (full_file_name.replace(f"{generatedDir}/", ""), "/generated")
                 )
-            else:
+            elif full_file_name.startswith(srcDir):
                 logging.info(
-                    f"Found {file}  {full_file_name} in the includes variable using {d}"
+                    f"Found {file} {full_file_name} in the includes variable using {d} {srcDir}"
                 )
                 ret.foundHeaders.add((full_file_name, d))
+            else:
+                logging.info(
+                    f"Found {file} {full_file_name} in the includes variable using {d} but didn't start with {srcDir}"
+                )
+                continue
         else:
             ret.neededGeneratedFiles.add(("/generated" + generatedFileFullName, d))
 
@@ -182,6 +188,7 @@ def _findCPPIncludeForFile(
             use_generated_dir,
             generatedDir,
             workDir,
+            srcDir=srcDir,
         )
         if use_generated_dir:
             newfoundHeaders = set()
@@ -212,6 +219,7 @@ def _findCPPIncludeForFileSameDir(
     generatedDir: Optional[str],
     generated: bool = False,
     workDir: str = "",
+    srcDir: str = "",
 ) -> Tuple[bool, CPPIncludes]:
     ret = CPPIncludes(set(), set(), set(), set())
     found = False
@@ -267,6 +275,7 @@ def _findCPPIncludeForFileSameDir(
         generated,
         generatedDir,
         workDir,
+        srcDir,
     )
     ret += cppIncludes
     return found, ret
@@ -281,6 +290,7 @@ def findCPPIncludes(
     generated: bool = False,
     generatedDir: Optional[str] = None,
     workDir: str = "",
+    srcDir: str = "",
 ) -> CPPIncludes:
     key = f"{name}"
     seenkey = f"{name} {includes_dirs}"
@@ -316,6 +326,7 @@ def findCPPIncludes(
                 generatedDir,
                 generated,
                 workDir,
+                srcDir,
             )
             if not found:
                 if len(includes_dirs) == 0:
@@ -330,6 +341,7 @@ def findCPPIncludes(
                     generatedFiles,
                     generatedDir,
                     workDir,
+                    srcDir,
                 )
             ret += cppIncludes
         else:
@@ -345,6 +357,7 @@ def findCPPIncludes(
                 generatedFiles,
                 generatedDir,
                 workDir,
+                srcDir,
             )
             ret += cppIncludes
 
@@ -374,6 +387,7 @@ def findCPPIncludes(
                     generatedFiles,
                     generatedDir,
                     workDir,
+                    srcDir,
                 )
                 ret += cppIncludes
                 found = True
