@@ -1152,13 +1152,15 @@ class Build:
         if self.associatedBazelTarget is None:
             # Make it configurable at some point
             stripDirectoryPrefix = True
+            name = re.sub(r"(\.so(?:(?:\.\d+)*)?)", "", el.name)
             if stripDirectoryPrefix:
-                name = el.shortName.split("/")[-1]
+                name = name.split("/")[-1]
             else:
-                name = el.shortName.replace("/", "_").replace(".", "_")
+                name = name.replace("/", "_").replace(".", "_")
 
-            logging.info(f"Creating cc_library/cc_binary/cc_test for {el.name}")
+            logging.info(f"Creating cc_library/cc_binary/cc_test for {name}")
             if self.vars.get("SONAME") is not None:
+
                 staticLibTarget = getObject(
                     BazelTarget,
                     "cc_library",
