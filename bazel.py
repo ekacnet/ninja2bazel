@@ -662,7 +662,13 @@ class BazelTarget(BaseBazelTarget):
                     or h.name.endswith(".tcc")
                 ):
                     headers.append(h)
-                elif h.name.endswith(".cpp"):
+                elif ".h." in h.name:
+                    headers.append(h)
+                elif (
+                    h.name.endswith(".cpp")
+                    or h.name.endswith(".cc")
+                    or h.name.endswith(".c")
+                ):
                     headers.append(h)
                 else:
                     if self.type != "cc_library":
