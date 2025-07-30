@@ -749,6 +749,7 @@ class Build:
         if (
             "clang" in cmd
             or "gcc" in cmd
+            or "cc" in cmd
             or "clang++" in cmd
             or "c++" in cmd
             or "g++" in cmd
