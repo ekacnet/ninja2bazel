@@ -156,9 +156,12 @@ def main():
     print(f"Time to generate Bazel's BUILD files: {end - start}", file=sys.stdout)
     logging.info("Done")
     for name, content in output.items():
-        logging.info(f"Wrote {rootdir}{name}{os.path.sep}BUILD.bazel")
-        with open(f"{rootdir}{name}{os.path.sep}BUILD.bazel", "w") as f:
-            f.write(content)
+        if len(content) > 1:
+            logging.info(
+                f"Wrote {rootdir}{name}{os.path.sep}BUILD.bazel len = {len(content)}"
+            )
+            with open(f"{rootdir}{name}{os.path.sep}BUILD.bazel", "w") as f:
+                f.write(content)
 
 
 def getCompilerIncludesDir(compiler: str = "clang++-18") -> List[str]:
