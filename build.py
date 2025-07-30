@@ -1233,7 +1233,11 @@ class Build:
             return self._handleProtobufForBazelGen(ctx, el, cmd)
         if self.rulename.name == "CUSTOM_COMMAND":
             return self._handleCustomCommandForBazelGen(ctx, el, cmd)
-        if self.isCPPCommand(cmd) and self.vars.get("LINK_FLAGS") is not None:
+
+        if self.isCPPCommand(cmd) and (
+            self.vars.get("SONAME") is not None
+            or self.vars.get("LINK_FLAGS") is not None
+        ):
             return self._handleCPPLinkCommand(el, cmd, ctx)
         if self.isCPPCommand(cmd) and "-c" in cmd:
             return self._handleCPPCompileCommand(ctx, el)
