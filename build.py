@@ -1253,6 +1253,10 @@ class Build:
             ctx.bazelbuild.bazelTargets.add(t)
             return True
 
+        if "cmake" in cmd:
+            # This is a cmake command, we don't handle it here
+            logging.warning(f"Skipping cmake command {cmd} for {el}")
+            return True
         logging.warn(f"Don't know how to handle {cmd} for {el}")
         return False
 
