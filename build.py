@@ -130,21 +130,30 @@ class TopLevelGroupingStrategy(BuildFileGroupingStrategy):
     ) -> str:
         if parentTargetPath == "":
             parentTargetPath = self.prefixDirectory
+        logging.debug(
+            f"Getting build target for {filename} with parentTargetPath {parentTargetPath} keepPrefix = {keepPrefix}"
+        )
         pathElements = filename.split(os.path.sep)
         prefix = ":"
         if len(pathElements) <= 1:
+            # basically no slash in filename
             return f"{prefix}{pathElements[0]}"
+        if parentTargetPath == ".":
+            val = f"{prefix}{os.path.sep.join(pathElements[:])}"
+        elif filename.startswith(parentTargetPath) and len(parentTargetPath):
+            val = f"{prefix}{os.path.sep.join(pathElements[1:])}"
         else:
-            if filename.startswith(parentTargetPath) and len(parentTargetPath):
-                return f"{prefix}{os.path.sep.join(pathElements[1:])}"
+            if keepPrefix:
+                idx = 0
             else:
-                if keepPrefix:
-                    idx = 0
-                else:
-                    idx = 1
-                # Different directory -> always return full path
-                v = f":{os.path.sep.join(pathElements[idx:])}"
-                return v
+                idx = 1
+            # Different directory -> always return full path unless something is telling us not
+            # to keep the prefix
+            val = f":{os.path.sep.join(pathElements[idx:])}"
+        logging.debug(
+            f"Returning {val} for {filename} with parentTargetPath {parentTargetPath}"
+        )
+        return val
 
 
 @total_ordering
@@ -453,7 +462,7 @@ class Build:
             if fileLocation is None:
                 fileLocation = (
                     BuildFileGroupingStrategy().getBuildFilenamePathFromFilename(
-                        filename
+                        filename, locationCaller
                     )
                 )
             else:
@@ -464,6 +473,8 @@ class Build:
             for k, v in cls.remapPaths.items():
                 if fileLocation.startswith(k):
                     fileLocation = fileLocation.replace(k, v)
+            if fileLocation == "":
+                fileLocation = locationCaller
             ef = ExportedFile(
                 BuildFileGroupingStrategy().getBuildTarget(
                     filename, locationCaller, keepPrefix
