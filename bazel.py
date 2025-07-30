@@ -744,6 +744,7 @@ class BazelTarget(BaseBazelTarget):
                     pathPrefix = __getPrefix(d)
                     ret.append(f'        "{pathPrefix}{d.targetName()}",')
                 ret.append("    ],")
+        ret.append('    visibility = ["//visibility:public"],')
         ret.append(")")
 
         return {name: ret}
