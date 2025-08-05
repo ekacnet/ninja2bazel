@@ -122,7 +122,7 @@ def main():
         prefix = f"{args.prefix}{os.path.sep}"
 
     cur_dir = os.path.dirname(os.path.abspath(filename))
-    logging.info("Parising ninja file and buildTargets")
+    logging.info("Parsing ninja file and buildTargets")
     if not rootdir.endswith(os.path.sep):
         rootdir = f"{rootdir}{os.path.sep}"
     remap = {}
@@ -147,7 +147,7 @@ def main():
     print(f"Time to getBuildTargets: {end - start}", file=sys.stdout)
     start = time.time()
     logging.info("Generating Bazel BUILD files from buildTargets")
-    logging.info(f"There is {len(top_levels_targets)} top level targets")
+    logging.info(f"There are {len(top_levels_targets)} top level targets")
 
     output = genBazelBuildFiles(
         top_levels_targets, rootdir, prefix, BUILD_CUSTOMIZATION_DIRECTORY
