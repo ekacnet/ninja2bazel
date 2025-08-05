@@ -9,7 +9,7 @@ import tempfile
 import time
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
-from bazel import BazelBuild, BazelCCImport, BazelTarget
+from bazel import BazelBuild, BazelCCImport
 from build import Build, BuildTarget, Rule, TargetType, TopLevelGroupingStrategy
 from build_visitor import BazelBuildVisitorContext, BuildVisitor, PrintVisitorContext
 from cppfileparser import CPPIncludes, findCPPIncludes, parseIncludes
@@ -99,9 +99,7 @@ class NinjaParser:
         self.all_targets: Dict[str, BuildTarget] = {}
         self.cc_imports: List[BuildTarget] = []
 
-    def getShortName(
-        self, name, workDir=None, generated=False
-    ) -> Tuple[str, str]:
+    def getShortName(self, name, workDir=None, generated=False) -> Tuple[str, str]:
         if name.startswith(self.codeRootDir):
             return (name[len(self.codeRootDir) :], ".")
         if workDir is None:
@@ -776,7 +774,7 @@ class NinjaParser:
                 logging.info(f"dirName {tempDirName} {h2[0]}")
                 if os.path.exists(f"{workDir}/{h2[0]}"):
                     includeDir = (
-                        f"{workDir}pregenerated/{h2[1].replace('/generated','')}"
+                        f"{workDir}pregenerated/{h2[1].replace('/generated', '')}"
                     )
                     ef = Build._genExportedFile(
                         h2[0].replace(workDir, ""), "pregenerated", None, True
@@ -1095,7 +1093,7 @@ def genBazel(
     else:
         dir = f"{rootdir}/"
 
-    ctx = BazelBuildVisitorContext(False, dir, bb, flagsToIgnore, prefix = bb.prefix)
+    ctx = BazelBuildVisitorContext(False, dir, bb, flagsToIgnore, prefix=bb.prefix)
 
     visitor = BuildVisitor.getVisitor()
 
