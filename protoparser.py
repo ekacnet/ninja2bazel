@@ -1,7 +1,7 @@
 import logging
 import os
 import re
-from typing import Dict, List, Set, Tuple
+from typing import Dict, List, Tuple
 
 seen = set()
 cache: Dict[str, Dict[str, List[Tuple[str, str]]]] = {}
