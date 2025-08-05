@@ -372,7 +372,7 @@ class BazelBuild:
                     allCopt.append(t.copts)
             if len(allCopt) > 0:
                 inCommon = find_common_subset(allCopt)
-                logging.info(f"In common {inCommon}")
+                logging.debug(f"In common {inCommon}")
 
     def addPostProcess(
         self, targetName: str, targetLocation: str, postProcessCallback: PostProcess
