@@ -1306,8 +1306,18 @@ class Build:
             "-g",
             "-DNDEBUG",
             "-fPIC",
+            "-arch",
         ]
-        prefixNotToKeep = ["-O", "-march", "-mtune", "-std=", "-DCOMPILATION_UNIT="]
+        flagSkipNext = [
+            "-arch",
+        ]
+        prefixNotToKeep = [
+            "-O",
+            "-march",
+            "-mtune",
+            "-std=",
+            "-DCOMPILATION_UNIT=",
+        ]
 
         def flagMatchPrefix(flag: str) -> bool:
             for prefix in prefixNotToKeep:
@@ -1315,6 +1325,7 @@ class Build:
                     return True
             return False
 
+        prev = None
         for define in self.vars.get("DEFINES", "").split(" "):
             if define in flagsNotToKeep:
                 pass
@@ -1327,6 +1338,8 @@ class Build:
 
         for flag in self.vars.get("FLAGS", "").split(" "):
             keep = True
+            if prev is not None and prev in flagSkipNext:
+                keep = False
             if flag in flagsNotToKeep:
                 keep = False
             elif flag in ctx.flagsToIgnore:
@@ -1344,6 +1357,7 @@ class Build:
                 # each .o
                 # logging.debug(f"Adding flag {flag} to copt into {ctx.current.name} {el.name}")
                 ctx.current.addCopt(f'"{flag}"')
+            prev = flag
 
         for i in build._inputs:
             # Most of it it dealt by HandleFileForBazel
