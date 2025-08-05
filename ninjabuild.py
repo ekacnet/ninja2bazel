@@ -322,9 +322,9 @@ class NinjaParser:
 
         # Let's look in the variables to see if there is not link_libraries we will need this
         if vars.get("LINK_LIBRARIES"):
-            for l in vars["LINK_LIBRARIES"].split(" "):
-                if (l.endswith(".a") or l.endswith(".so")) and not l.startswith("/"):
-                    raw_depends.append(l)
+            for lb in vars["LINK_LIBRARIES"].split(" "):
+                if (lb.endswith(".a") or lb.endswith(".so")) and not lb.startswith("/"):
+                    raw_depends.append(lb)
         buildDeps: List[BuildTarget] = []
         for d in raw_depends:
             regex = r".*/lib(grpc|protobuf)(\.|\+).*"
@@ -972,10 +972,10 @@ class NinjaParser:
     def pruneTransitivePhonyTargets(self):
         # FIXME
         # revist that at some point
-        startingBuild = self.all_outputs["all"].producedby
+        # startingBuild = self.all_outputs["all"].producedby
+        # ctx = PrunedVisitorContext()
         return
 
-        ctx = PrunedVisitorContext()
 
     def debugGraph(self):
         start = self.all_outputs["all"]
