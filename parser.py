@@ -164,12 +164,12 @@ def main():
                 f.write(content)
 
 
-def getCompilerIncludesDir(compiler: str = "clang++-18") -> List[str]:
-    cmd = f"""echo "" |{compiler} -Wp,-v -x c++ - -fsyntax-only  2>&1 |sed -n -e '/^\\s\\+/p'  | sed 's/^[ \\t]*//'"""
+def getCompilerIncludesDir(compiler: str = "clang++") -> List[str]:
+    sed_cmd = "/^[[:space:]]\\{1,\\}/p"
+    cmd = f"""echo "" |{compiler} -Wp,-v -x c++ - -fsyntax-only  2>&1 |sed -n -e '{sed_cmd}'  | sed 's/^[ \\t]*//'"""
     ret: List[str] = []
     result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
     ret.extend(result.stdout.split("\n"))
-
     return ret
 
 
