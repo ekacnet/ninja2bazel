@@ -101,9 +101,9 @@ class NinjaParser:
 
     def getShortName(
         self, name, workDir=None, generated=False
-    ) -> Tuple[str, Optional[str]]:
+    ) -> Tuple[str, str]:
         if name.startswith(self.codeRootDir):
-            return (name[len(self.codeRootDir) :], None)
+            return (name[len(self.codeRootDir) :], ".")
         if workDir is None:
             workDir = self.vars[self.currentContext].get("cmake_ninja_workdir", "")
         if not workDir.endswith(os.path.sep):
@@ -117,10 +117,12 @@ class NinjaParser:
         # The name is relative (ie. for generated files)
         if self.initialDirectory != "" and name[0] != os.path.sep:
             return (name, self.initialDirectory)
-        return (name, None)
+        return (name, ".")
 
     def setDirectoryPrefix(self, initialDirectoryPrefix: str):
         self.initialDirectory = initialDirectoryPrefix
+        if self.initialDirectory.endswith(os.path.sep):
+            self.initialDirectory = self.initialDirectory[:-1]
 
     def setContext(self, contextName: str):
         self.contexts.append(contextName)
@@ -1093,7 +1095,7 @@ def genBazel(
     else:
         dir = f"{rootdir}/"
 
-    ctx = BazelBuildVisitorContext(False, dir, bb, flagsToIgnore)
+    ctx = BazelBuildVisitorContext(False, dir, bb, flagsToIgnore, prefix = bb.prefix)
 
     visitor = BuildVisitor.getVisitor()
 

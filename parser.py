@@ -119,6 +119,7 @@ def main():
         if not os.path.isdir(f"{rootdir}{os.path.sep}{args.prefix}"):
             logging.fatal(f"Prefix directory {args.prefix} is not a directory")
             sys.exit(-1)
+        # Should we have a special case for "." ?
         prefix = f"{args.prefix}{os.path.sep}"
 
     cur_dir = os.path.dirname(os.path.abspath(filename))

@@ -60,8 +60,11 @@ class BazelBuildVisitorContext(VisitorContext):
     producer: Optional["Build"] = None
     next_current: Optional[BaseBazelTarget] = None
     currentBuild: Optional["Build"] = None
+    prefix: Optional["str"] = None
 
     def __post_init__(self):
+        if self.prefix.endswith(os.path.sep):
+            self.prefix = self.prefix[:-1]
         self.parentIsPhony = False
 
     def setup_subcontext(self) -> "VisitorContext":
@@ -98,10 +101,14 @@ class BuildFileGroupingStrategy:
     def getBuildTarget(self, filename: str, parentTarget: str, keepPrefix=False) -> str:
         raise NotImplementedError
 
-    def getBuildFilenamePath(self, element: "BuildTarget") -> str:
+    def getBuildFilenamePath(
+        self, element: "BuildTarget", parentTargetPath: str
+    ) -> str:
         raise NotImplementedError
 
-    def getBuildFilenamePathFromFilename(self, filename: str) -> str:
+    def getBuildFilenamePathFromFilename(
+        self, filename: str, parentTargetPath: str
+    ) -> str:
         raise NotImplementedError
 
 
@@ -112,15 +119,24 @@ class TopLevelGroupingStrategy(BuildFileGroupingStrategy):
     def strategyName(self):
         return "TopLevelGroupingStrategy"
 
-    def getBuildFilenamePath(self, element: "BuildTarget") -> str:
+    def getBuildFilenamePath(
+        self, element: "BuildTarget", parentTargetPath: str
+    ) -> str:
         if element.location is not None:
             return element.location.split("/")[0]
 
-        return self.getBuildFilenamePathFromFilename(element.shortName)
+        return self.getBuildFilenamePathFromFilename(
+            element.shortName, parentTargetPath
+        )
 
-    def getBuildFilenamePathFromFilename(self, filename: str) -> str:
+    def getBuildFilenamePathFromFilename(
+        self, filename: str, parentTargetPath: str
+    ) -> str:
+        if parentTargetPath == ".":
+            return "."
         pathElements = filename.split(os.path.sep)
         if len(pathElements) <= 1:
+            logging.info(f"No {os.path.sep} in {filename} using '' as the root path ")
             return ""
         else:
             return pathElements[0]
@@ -811,7 +827,9 @@ class Build:
             ctx.next_current = savedCurrent
             # Maybe we still want to continue ... tbd
             return True
-        location = TopLevelGroupingStrategy().getBuildFilenamePath(el)
+        location = TopLevelGroupingStrategy().getBuildFilenamePath(
+            el, ctx.current.location if ctx.current else ctx.prefix
+        )
         t = getObject(BazelProtoLibrary, f"{proto}_proto", location)
         ctx.bazelbuild.bazelTargets.add(t)
         self.setAssociatedBazelTarget(t)
@@ -833,7 +851,9 @@ class Build:
         if self.associatedBazelTarget is None:
             name = el.shortName.replace("/", "_").replace(".", "_")
 
-            location = TopLevelGroupingStrategy().getBuildFilenamePath(el)
+            location = TopLevelGroupingStrategy().getBuildFilenamePath(
+                el, ctx.current.location if ctx.current else ctx.prefix
+            )
             genTarget = getObject(BazelGenRuleTarget, f"{name}_command", location)
 
             # allInputs is all the inputs with the rootdir stripped
@@ -872,7 +892,7 @@ class Build:
                     genTarget.addOut(name)
 
             logging.info(
-                f"Current build path for target: {TopLevelGroupingStrategy().getBuildFilenamePath(el)}"
+                f"Current build path for target: {TopLevelGroupingStrategy().getBuildFilenamePath(el, ctx.current.location if ctx.current else ctx.prefix)}"
             )
             countRewrote = 0
             countInput = 0
@@ -911,7 +931,7 @@ class Build:
                     inputName = inFile.name.replace(f"{ctx.rootdir}", "")
                     if inputName == arg:
                         inputLocation = BuildFileGroupingStrategy().getBuildFilenamePathFromFilename(
-                            inputName
+                            inputName, ctx.current.location
                         )
                         inputFileTarget = BuildFileGroupingStrategy().getBuildTarget(
                             inputName, genTarget.location
@@ -979,7 +999,9 @@ class Build:
             genTarget = tmp
             workDir = self.vars.get("cmake_ninja_workdir", "")
 
-        location = TopLevelGroupingStrategy().getBuildFilenamePath(el) + "/"
+        location = TopLevelGroupingStrategy().getBuildFilenamePath(
+            el, ctx.current.location if ctx.current else ctx.prefix
+        )
         logging.info(f"Looking for generated files for {el.shortName} in {location}")
         outs = genTarget.getOutputs(el.shortName, location)
 
@@ -1072,7 +1094,9 @@ class Build:
         # Now that we cache the associated bazel targets there is limited risk to "recreate" the same target
         proto = self._getProtoName(el)
 
-        location = TopLevelGroupingStrategy().getBuildFilenamePath(el)
+        location = TopLevelGroupingStrategy().getBuildFilenamePath(
+            el, ctx.current.location if ctx.current else ctx.prefix
+        )
         t: BaseBazelTarget = getObject(
             BazelGRPCCCProtoLibrary, f"{proto}_cc_grpc", location
         )
@@ -1088,7 +1112,9 @@ class Build:
         assert ctx.current is not None
         proto = self._getProtoName(el)
 
-        location = TopLevelGroupingStrategy().getBuildFilenamePath(el)
+        location = TopLevelGroupingStrategy().getBuildFilenamePath(
+            el, ctx.current.location if ctx.current else ctx.prefix
+        )
 
         t: BaseBazelTarget = getObject(
             BazelCCProtoLibrary, f"{proto}_cc_proto", location
@@ -1105,7 +1131,10 @@ class Build:
     def _handleCPPLinkExecutableCommand(
         self, el: BuildTarget, cmd: str, ctx: BazelBuildVisitorContext
     ) -> bool:
-        location = TopLevelGroupingStrategy().getBuildFilenamePath(el)
+        logging.info(el.name)
+        location = TopLevelGroupingStrategy().getBuildFilenamePath(
+            el, ctx.current.location if ctx.current else ctx.prefix
+        )
         if self.associatedBazelTarget is None:
             stripDirectoryPrefix = True
             if stripDirectoryPrefix:
@@ -1148,7 +1177,9 @@ class Build:
         self, el: BuildTarget, cmd: str, ctx: BazelBuildVisitorContext
     ) -> bool:
         continueVisit = True
-        location = TopLevelGroupingStrategy().getBuildFilenamePath(el)
+        location = TopLevelGroupingStrategy().getBuildFilenamePath(
+            el, ctx.current.location if ctx.current else ctx.prefix
+        )
         if self.associatedBazelTarget is None:
             # Make it configurable at some point
             stripDirectoryPrefix = True
@@ -1160,7 +1191,6 @@ class Build:
 
             logging.info(f"Creating cc_library/cc_binary/cc_test for {name}")
             if self.vars.get("SONAME") is not None:
-
                 staticLibTarget = getObject(
                     BazelTarget,
                     "cc_library",
@@ -1245,7 +1275,9 @@ class Build:
             return self._handleCPPLinkExecutableCommand(el, cmd, ctx)
         if self.isStaticArchiveCommand(cmd):
             assert len(self.outputs) == 1
-            location = TopLevelGroupingStrategy().getBuildFilenamePath(el)
+            location = TopLevelGroupingStrategy().getBuildFilenamePath(
+                el, ctx.current.location if ctx.current else ctx.prefix
+            )
             t = getObject(BazelTarget, "cc_library", el.name, location)
             if ctx.current is not None:
                 ctx.current.addDep(t)
