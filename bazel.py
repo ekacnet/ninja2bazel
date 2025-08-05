@@ -649,7 +649,6 @@ class BazelTarget(BaseBazelTarget):
                 return True
         return False
 
-
     def asBazel(self, commonFlags: CompilationFlags) -> BazelTargetStrings:
         ret = []
         ret.append(f"{self.type}(")
@@ -704,7 +703,8 @@ class BazelTarget(BaseBazelTarget):
         # the targets that depends on it
         for define in self.defines:
             define = define.replace('"', "")
-            copts.add(f'"-D{define}"')
+            if len(define):
+                copts.add(f'"-D{define}"')
         self.defines = set()
         if self.type in ("cc_library", "cc_binary", "cc_test"):
             linkopts = ["keep"]
@@ -820,7 +820,6 @@ class BazelGenRuleTarget(BaseBazelTarget):
     def getOutputs(
         self, name: str, stripedPrefix: Optional[str] = None
     ) -> List["BazelGenRuleTargetOutput"]:
-
         if stripedPrefix and name.startswith(stripedPrefix):
             name = name.replace(stripedPrefix, "")
         if self.aliases.get(name) is not None:
