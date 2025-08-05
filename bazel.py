@@ -421,7 +421,7 @@ class BazelBuild:
                 if not top:
                     top = set()
                 top.add(t.getGlobalImport())
-                if not t.location.startswith("@"):
+                if not t.location.startswith("@") and t.need_helpers_bzl():
                     top.update(helper_include)
                 if self.additionalBazelHeaders.get(location):
                     top.update(self.additionalBazelHeaders[location])
@@ -640,6 +640,15 @@ class BazelTarget(BaseBazelTarget):
             deps = f" DEPS[{' '.join([str(d.targetName()) for d in self.deps])}]"
             base += deps
         return base
+
+    def need_helpers_bzl(self):
+        for dir in list(self.includeDirs):
+            # The second element IncludeDir is a flag to indicate if the header is generated
+            # and if so we need to add the bazel-out prefix to the -I option
+            if dir[1]:
+                return True
+        return False
+
 
     def asBazel(self, commonFlags: CompilationFlags) -> BazelTargetStrings:
         ret = []
