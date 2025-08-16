@@ -609,14 +609,12 @@ class BazelTarget(BaseBazelTarget):
         if self.type == "cc_library":
             name = name.replace("/", "_")
         if self.type == "cc_library" or self.type == "cc_shared_library":
-            if not name.startswith("lib") and self.addPrefixIfRequired:
-                name = f"lib{name}"
-            elif self.addPrefixIfRequired:
-                name = f"lib{name.replace('_lib', '')}"
-            else:
-                name = name
+            if name.startswith("lib"):
+                name = name[3:]
+            name = f"{name.replace('_lib', '')}"
             name = name.replace(".a", "")
             name = name.replace(".so", "")
+            name = name.replace(".dylib", "")
         elif self.type == "cc_test":
             name = f"test_{name}"
             if name.endswith("_test"):
