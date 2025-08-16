@@ -1308,9 +1308,15 @@ class Build:
             "-DNDEBUG",
             "-fPIC",
             "-arch",
+            "-isysroot",
+            "-gdwarf-4",
+            "-ggdb1",
+            "-L",
         ]
         flagSkipNext = [
             "-arch",
+            "-isysroot",
+            "-L",
         ]
         prefixNotToKeep = [
             "-O",
@@ -1318,6 +1324,9 @@ class Build:
             "-mtune",
             "-std=",
             "-DCOMPILATION_UNIT=",
+            "-stdlib=",
+            "-gz",
+
         ]
 
         def flagMatchPrefix(flag: str) -> bool:
