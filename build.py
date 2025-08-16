@@ -1185,6 +1185,7 @@ class Build:
             # Make it configurable at some point
             stripDirectoryPrefix = True
             name = re.sub(r"(\.so(?:(?:\.\d+)*)?)", "", el.name)
+            name = re.sub(r"((?:(?:\.\d+)*)(?:(?:\.\d+)*)\.dylib)", "", name)
             if stripDirectoryPrefix:
                 name = name.split("/")[-1]
             else:
@@ -1326,7 +1327,6 @@ class Build:
             "-DCOMPILATION_UNIT=",
             "-stdlib=",
             "-gz",
-
         ]
 
         def flagMatchPrefix(flag: str) -> bool:
