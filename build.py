@@ -475,7 +475,10 @@ class Build:
         )
         if not ef:
             keepPrefix = False
-            if fileLocation is None:
+            if ispregenerated:
+                assert fileLocation is None
+                fileLocation = locationCaller
+            elif fileLocation is None:
                 fileLocation = (
                     BuildFileGroupingStrategy().getBuildFilenamePathFromFilename(
                         filename, locationCaller
@@ -483,8 +486,6 @@ class Build:
                 )
             else:
                 keepPrefix = True
-            if ispregenerated:
-                fileLocation = f"pregenerated/{fileLocation}"
             logging.debug(f"Checking if {fileLocation} needs replacement")
             for k, v in cls.remapPaths.items():
                 if fileLocation.startswith(k):
