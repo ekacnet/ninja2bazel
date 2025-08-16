@@ -15,18 +15,18 @@ class DummyTarget(BazelTarget):
 class TestBazelUtils(unittest.TestCase):
     def test_get_prefix(self):
         t1 = BazelTarget('cc_library', 'foo', 'src')
-        self.assertEqual(_getPrefix(t1, 'src'), '')
+        self.assertEqual(_getPrefix(t1, 'src',defaultPrefix='foo'), '')
         t2 = BazelTarget('cc_library', 'bar', 'lib')
-        self.assertEqual(_getPrefix(t2, 'src'), '//lib')
+        self.assertEqual(_getPrefix(t2, 'src',defaultPrefix='foo'), '//lib')
         t3 = BazelTarget('cc_library', 'ext', '@ext//')
-        self.assertEqual(_getPrefix(t3, 'src'), '@ext//')
+        self.assertEqual(_getPrefix(t3, 'src', defaultPrefix='foo'), '@ext//')
 
     def test_compare_deps(self):
         a = BazelTarget('cc_library', 'a', 'src')
         b = BazelTarget('cc_library', 'b', 'src')
-        cmp = compare_deps(a, b, lambda x: _getPrefix(x, 'src'))
+        cmp = compare_deps(a, b, lambda x: _getPrefix(x, 'src', defaultPrefix= 'foo'))
         self.assertLess(cmp, 0)
-        self.assertGreater(compare_deps(b, a, lambda x: _getPrefix(x, 'src')), 0)
+        self.assertGreater(compare_deps(b, a, lambda x: _getPrefix(x, 'src',  defaultPrefix='foo')), 0)
 
     def test_compare_imports(self):
         self.assertEqual(compare_imports('load("@a//:foo")', 'load("@a//:foo")'), 0)

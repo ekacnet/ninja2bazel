@@ -777,7 +777,7 @@ class NinjaParser:
                         f"{workDir}pregenerated/{h2[1].replace('/generated', '')}"
                     )
                     ef = Build._genExportedFile(
-                        h2[0].replace(workDir, ""), "pregenerated", None, True
+                        h2[0].replace(workDir, ""), "<pregenerated>", None, True
                     )
                     elem.addDeps(ef)
                     logging.info(
