@@ -5,6 +5,8 @@ from functools import cache, cmp_to_key, total_ordering
 from itertools import combinations
 from typing import Any, Callable, Dict, List, Optional, Set, Type, TypeVar, Union
 
+PREGENERATED_LOCATION = "<pregenerated>"
+
 BazelTargetStrings = Dict[str, List[str]]
 # Define a type variable that can be any type
 T = TypeVar("T")
@@ -12,21 +14,28 @@ T = TypeVar("T")
 CompilationFlags = Dict[str, Union[str, Set[str]]]
 
 
-def _getPrefix(d: Union["BaseBazelTarget", "BazelCCImport"], location: str) -> str:
-    if d.location.startswith("@"):
-        return d.location
-    elif d.location.startswith("//"):
-        return d.location
-    return f"//{d.location}" if d.location != location else ""
+def _getPrefix(
+    d: Union["BaseBazelTarget", "BazelCCImport"], location: str, defaultPrefix: str
+) -> str:
+    loc = d.location
+    if loc == PREGENERATED_LOCATION:
+        loc = defaultPrefix
+    if loc.startswith("@"):
+        return loc
+    elif loc.startswith("//"):
+        return loc
+    if loc == "./" and location == ".":
+        return ""
+    return f"//{loc}" if loc != location else ""
 
 
 def compare_deps(
     obja: Union["BazelCCImport", "BaseBazelTarget"],
     objb: Union["BazelCCImport", "BaseBazelTarget"],
-    _getPrefix=Callable[[Union["BazelCCImport", "BaseBazelTarget"]], str],
+    __getPrefix=Callable[[Union["BazelCCImport", "BaseBazelTarget"]], str],
 ) -> int:
-    a = f"{_getPrefix(obja)}{obja.targetName()}"
-    b = f"{_getPrefix(objb)}{objb.targetName()}"
+    a = f"{__getPrefix(obja)}{obja.targetName()}"
+    b = f"{__getPrefix(objb)}{objb.targetName()}"
     ret = 0
     if a[0] == b[0]:
         if a == b:
@@ -200,7 +209,9 @@ class BazelCCImport:
         # Return an empty list, the deps of a cc_import are not propagated
         return []
 
-    def asBazel(self, _flags: CompilationFlags) -> BazelTargetStrings:
+    def asBazel(
+        self, _flags: CompilationFlags, defaultPrefix: str = None
+    ) -> BazelTargetStrings:
         output = {}
         dirs: Set[str] = set()
         val = "[]"
@@ -290,6 +301,9 @@ class BazelCCImport:
         if len(self.deps) > 0:
             ret.append("    deps = [")
             for d in sorted(self.deps):
+                location = d.location
+                if location == PREGENERATED_LOCATION:
+                    location = defaultPrefix[:-1]
                 if d.location == self.location:
                     ret.append(f'        "{d.targetName()}",')
                 else:
@@ -399,6 +413,8 @@ class BazelBuild:
                     location = t.physicalLocation
                 else:
                     location = t.location
+                if location == PREGENERATED_LOCATION:
+                    location = self.prefix[:-1]
                 commonLocationFlags = self.commonFlags.get(location, {})
                 body = content.get(location, [])
                 if isinstance(t, ExportedFile):
@@ -406,7 +422,7 @@ class BazelBuild:
                         t.name.split(".")[-1]
                     )
                     continue
-                items = t.asBazel(commonLocationFlags).items()
+                items = t.asBazel(commonLocationFlags, self.prefix).items()
                 if len(items):
                     body.append(f"# Location {location}")
                 if location == "src":
@@ -507,7 +523,9 @@ class BaseBazelTarget(object):
     def addSrc(self, target: "BaseBazelTarget"):
         raise NotImplementedError(f"addSrc not implemented for {self.__class__}")
 
-    def asBazel(self, flags: CompilationFlags) -> BazelTargetStrings:
+    def asBazel(
+        self, flags: CompilationFlags, defaultPrefix: str = None
+    ) -> BazelTargetStrings:
         raise NotImplementedError
 
     def addDep(self, target: Union["BaseBazelTarget", BazelCCImport]):
@@ -649,7 +667,9 @@ class BazelTarget(BaseBazelTarget):
                 return True
         return False
 
-    def asBazel(self, commonFlags: CompilationFlags) -> BazelTargetStrings:
+    def asBazel(
+        self, commonFlags: CompilationFlags, defaultPrefix: str = None
+    ) -> BazelTargetStrings:
         ret = []
         ret.append(f"{self.type}(")
         name = self.depName().replace(":", "")
@@ -743,7 +763,7 @@ class BazelTarget(BaseBazelTarget):
                 ret.append(f"    {k} = [")
 
                 def __getPrefix(d: Union[BaseBazelTarget, BazelCCImport]):
-                    return _getPrefix(d, self.location)
+                    return _getPrefix(d, self.location, defaultPrefix)
 
                 def cmp_deps(a, b):
                     return compare_deps(a, b, __getPrefix)
@@ -785,7 +805,9 @@ class BazelGenRuleTarget(BaseBazelTarget):
     def addTool(self, target: BaseBazelTarget):
         self.tools.add(target)
 
-    def asBazel(self, _flags: CompilationFlags) -> BazelTargetStrings:
+    def asBazel(
+        self, _flags: CompilationFlags, defaultPrefix: str = None
+    ) -> BazelTargetStrings:
         ret = []
         ret.append(f"{self.type}(")
         ret.append(f'    name = "{self.name}",')
@@ -848,7 +870,9 @@ class BazelCCProtoLibrary(BaseBazelTarget):
         assert isinstance(dep, BazelProtoLibrary) or isinstance(dep, BazelExternalDep)
         self.deps.add(dep)
 
-    def asBazel(self, _flags: CompilationFlags) -> BazelTargetStrings:
+    def asBazel(
+        self, _flags: CompilationFlags, defaultPrefix: str = None
+    ) -> BazelTargetStrings:
         ret = []
         ret.append(f"{self.type}(")
         ret.append(f'    name = "{self.name}",')
@@ -886,7 +910,9 @@ class BazelGRPCCCProtoLibrary(BaseBazelTarget):
     def getGlobalImport(self):
         return 'load("@com_github_grpc_grpc//bazel:cc_grpc_library.bzl", "cc_grpc_library")'
 
-    def asBazel(self, _flags: CompilationFlags) -> BazelTargetStrings:
+    def asBazel(
+        self, _flags: CompilationFlags, defaultPrefix: str = None
+    ) -> BazelTargetStrings:
         ret = []
         ret.append(f"{self.type}(")
         ret.append(f'    name = "{self.name}",')
@@ -903,7 +929,7 @@ class BazelGRPCCCProtoLibrary(BaseBazelTarget):
                 ret.append(f"    {k} = [")
 
                 def __getPrefix(d: Union[BaseBazelTarget, BazelCCImport]):
-                    return _getPrefix(d, self.location)
+                    return _getPrefix(d, self.location, defaultPrefix)
 
                 def cmp_deps(a, b):
                     return compare_deps(a, b, __getPrefix)
@@ -946,7 +972,9 @@ class BazelProtoLibrary(BaseBazelTarget):
         assert isinstance(target, BaseBazelTarget)
         self.deps.add(target)
 
-    def asBazel(self, _flags: CompilationFlags) -> BazelTargetStrings:
+    def asBazel(
+        self, _flags: CompilationFlags, defaultPrefix: str = None
+    ) -> BazelTargetStrings:
         ret = []
         ret.append(f"{self.type}(")
         ret.append(f'    name = "{self.name}",')
@@ -962,7 +990,7 @@ class BazelProtoLibrary(BaseBazelTarget):
                 ret.append(f"    {k} = [")
 
                 def __getPrefix(d: Union[BaseBazelTarget, BazelCCImport]):
-                    return _getPrefix(d, self.location)
+                    return _getPrefix(d, self.location, defaultPrefix)
 
                 def cmp_deps(a, b):
                     return compare_deps(a, b, __getPrefix)
@@ -986,7 +1014,9 @@ class BazelExternalDep(BaseBazelTarget):
     def __init__(self, name: str, location: str):
         super().__init__("external", name, location)
 
-    def asBazel(self, _flags: CompilationFlags) -> BazelTargetStrings:
+    def asBazel(
+        self, _flags: CompilationFlags, defaultPrefix: str = None
+    ) -> BazelTargetStrings:
         return {}
 
 
@@ -1017,8 +1047,10 @@ class BazelGenRuleTargetOutput(BaseBazelTarget):
         self.rule = genrule
         self.name = name
 
-    def asBazel(self, flags: CompilationFlags) -> BazelTargetStrings:
-        return self.rule.asBazel(flags)
+    def asBazel(
+        self, flags: CompilationFlags, defaultPrefix: str = None
+    ) -> BazelTargetStrings:
+        return self.rule.asBazel(flags, defaultPrefix)
 
     def getAllHeaders(self, deps_only=False):
         if self.name.endswith(".h"):
@@ -1033,7 +1065,9 @@ class PyBinaryBazelTarget(BaseBazelTarget):
         self.srcs: set[BaseBazelTarget] = set()
         self.data: set[BaseBazelTarget] = set()
 
-    def asBazel(self, _flags: CompilationFlags) -> BazelTargetStrings:
+    def asBazel(
+        self, _flags: CompilationFlags, defaultPrefix: str = None
+    ) -> BazelTargetStrings:
         ret = []
         ret.append(f"{self.type}(")
         ret.append(f'    name = "{self.name}",')
@@ -1058,7 +1092,9 @@ class ShBinaryBazelTarget(BaseBazelTarget):
         self.srcs: set[BaseBazelTarget] = set()
         self.data: set[BaseBazelTarget] = set()
 
-    def asBazel(self, _flags: CompilationFlags) -> BazelTargetStrings:
+    def asBazel(
+        self, _flags: CompilationFlags, defaultPrefix: str = None
+    ) -> BazelTargetStrings:
         ret = []
         ret.append(f"{self.type}(")
         ret.append(f'    name = "{self.name}",')
