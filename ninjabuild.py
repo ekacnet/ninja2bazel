@@ -1068,7 +1068,7 @@ def canBePruned(b: Build) -> bool:
 def getToplevels(
     parser: NinjaParser, top_level_targets: List[str]
 ) -> List[BuildTarget]:
-    inputs = set()
+    targets = set()
     for t in top_level_targets:
         if t not in parser.all_outputs:
             logging.error(f"Couldn't find target {t} in the parsed ninja file")
@@ -1077,8 +1077,12 @@ def getToplevels(
         if b is None:
             logging.error(f"Couldn't find a build for {t}")
             return []
-        inputs.update(b.getInputs())
-    return list(inputs)
+        if b.rulename.name != "phony":
+            targets.add(parser.all_outputs[t])
+            continue
+        # only add inputs if the target is phony
+        targets.update(b.getInputs())
+    return list(targets)
 
 
 def _printNiceDict(d: dict[str, Any]) -> str:
