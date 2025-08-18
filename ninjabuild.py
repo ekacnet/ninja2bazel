@@ -776,8 +776,13 @@ class NinjaParser:
                     includeDir = (
                         f"{workDir}pregenerated/{h2[1].replace('/generated', '')}"
                     )
+                    # Need to add both <pregenerated> and pregenerated so that the first one get
+                    # removed when creating the expored file and then the second so that we can find the header
                     ef = Build._genExportedFile(
-                        h2[0].replace(workDir, ""), "<pregenerated>", None, True
+                        f"<pregenerated>/pregenerated/{h2[0].replace(workDir, '')}",
+                        "<pregenerated>",
+                        None,
+                        True,
                     )
                     elem.addDeps(ef)
                     logging.info(
@@ -975,7 +980,6 @@ class NinjaParser:
         # startingBuild = self.all_outputs["all"].producedby
         # ctx = PrunedVisitorContext()
         return
-
 
     def debugGraph(self):
         start = self.all_outputs["all"]
