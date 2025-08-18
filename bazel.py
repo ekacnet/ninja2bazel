@@ -432,7 +432,8 @@ class BazelBuild:
                     if self.postProcess.get(f"{k}{location}"):
                         v2 = self.postProcess[f"{k}{location}"](v2)
                     body.extend(v2)
-                content[location] = body
+                if len(body) > 0:
+                    content[location] = body
                 top = topContent.get(location)
                 if not top:
                     top = set()
@@ -441,12 +442,13 @@ class BazelBuild:
                     top.update(helper_include)
                 if self.additionalBazelHeaders.get(location):
                     top.update(self.additionalBazelHeaders[location])
-                topContent[location] = top
+                if len(top) > 0:
+                    topContent[location] = top
                 lastLocation = location
             except Exception as e:
                 logging.error(f"While generating Bazel content for {t.name}: {e}")
                 raise
-            if lastLocation is not None:
+            if lastLocation is not None and lastLocation in content:
                 content[lastLocation].append("")
         for location, exts in extensions_per_location.items():
             if location not in content:
