@@ -701,6 +701,13 @@ class Build:
             elif d.startswith(ctx.rootdir):
                 includeDir = d.replace(ctx.rootdir, "")
             elif workDir is not None and d.startswith(f"{workDir}pregenerated"):
+                if ctx.current.location == ".":
+                    i = f"pregenerated/{i}"
+                else:
+                    # When the location is not "." aka the default directory
+                    # we need to pad with another directory as it will be removed.
+                    i = f"<pregenerated>/pregenerated/{i}"
+
                 logging.info(f"Found pregenerated include dir in workDir for {i} {d}")
                 includeDir = d.replace(workDir, "")
                 pregenerated = True
