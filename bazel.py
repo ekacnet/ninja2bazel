@@ -705,6 +705,8 @@ class BazelTarget(BaseBazelTarget):
                             "adding to data but it's likely to not work well"
                         )
                         data.append(h)
+                    else:
+                        headers.append(h)
 
         sources = [f for f in self.srcs]
         copts = set()
