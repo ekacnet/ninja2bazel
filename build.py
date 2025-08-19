@@ -673,9 +673,15 @@ class Build:
                 logging.debug(f"Dealing with external dep {el.name}")
                 return
             # Not produced aka it's a file
-            v = ctx.rootdir
+            if el.name.startswith(workDir):
+                pregenerated = True
+                name = f"pregenerated/{el.shortName}"
+            else:
+                pregenerated = False
+                name = f"{el.shortName}"
+
             exported = cls._genExportedFile(
-                el.shortName, ctx.current.location, None, not el.name.startswith(v)
+                name, ctx.current.location, None, pregenerated
             )
             ctx.bazelbuild.bazelTargets.add(exported)
             ctx.current.addSrc(exported)
