@@ -455,11 +455,12 @@ class NinjaParser:
         if exe[0].endswith("/mono"):
             for f in outputs:
                 self.generatedFiles[f] = (
-                    build,
+                    None,
                     build.vars.get("cmake_ninja_workdir", ""),
                 )
+
+            # skip mono all togother
             # Should generate empty files
-            # skip mono
             return
         if exe[0].endswith("/protoc"):
             for f in outputs:
@@ -581,6 +582,7 @@ class NinjaParser:
                 self.generatedFiles,
                 True,
                 tempTopFolder,
+                workDir,
             )
             if len(cppIncludes.notFoundHeaders) > 0 and includes != "":
                 logging.warning(
@@ -725,6 +727,7 @@ class NinjaParser:
                 self.generatedFiles,
                 generated,
                 tempDirName,
+                workDir,
             )
             if len(cppIncludes.notFoundHeaders) > 0:
                 for h in cppIncludes.notFoundHeaders:
@@ -765,18 +768,30 @@ class NinjaParser:
                             elem.addIncludedFile((f"FAKE{h2[0]}", h2[1]))
                     continue
                 logging.info(f"dirName {tempDirName} {h2[0]}")
-                for bldTgt in self.generatedFiles[h2[0]][0].outputs:
-                    # We do 2 things for generated headers:
-                    # 1. we add them (eventually through generatedOutputNeeded) to the input of the current built
-                    # so that they are a dependency so that we know exactly the name of the target to use
-                    # as the target name might be a mix between the filename and the include path (partial)
-                    # 2. we add it as include too so that the include directory is properly recoreded
-                    includeDir = h2[1]
-                    if bldTgt.name == h2[0]:
-                        logging.debug(
-                            f"For {filename} need generated file  {h2[0]} requires build target {bldTgt.name}"
-                        )
-                        generatedOutputsNeeded.add(bldTgt)
+                if os.path.exists(f"{workDir}/{h2[0]}"):
+                    includeDir = (
+                        f"{workDir}pregenerated/{h2[1].replace('/generated','')}"
+                    )
+                    ef = Build._genExportedFile(
+                        h2[0].replace(workDir, ""), "pregenerated", None, True
+                    )
+                    elem.addDeps(ef)
+                    logging.info(
+                        f"Adding {h2[0]} to pre generated files as it exists in {workDir} include Dir {includeDir}"
+                    )
+                else:
+                    for bldTgt in self.generatedFiles[h2[0]][0].outputs:
+                        # We do 2 things for generated headers:
+                        # 1. we add them (eventually through generatedOutputNeeded) to the input of the current built
+                        # so that they are a dependency so that we know exactly the name of the target to use
+                        # as the target name might be a mix between the filename and the include path (partial)
+                        # 2. we add it as include too so that the include directory is properly recoreded
+                        includeDir = h2[1]
+                        if bldTgt.name == h2[0]:
+                            logging.debug(
+                                f"For {filename} need generated file  {h2[0]} requires build target {bldTgt.name}"
+                            )
+                            generatedOutputsNeeded.add(bldTgt)
                 elem.addIncludedFile((h2[0], includeDir))
 
         if elem.is_a_file and isProtoLikeFile(elem.name):
