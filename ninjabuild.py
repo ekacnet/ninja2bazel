@@ -1199,4 +1199,5 @@ def genBazelBuildFiles(
 
     bb.cleanup()
 
+    bb.genAdditionalDeps()
     return bb.genBazelBuildContent()
