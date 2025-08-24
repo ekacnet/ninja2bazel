@@ -452,6 +452,15 @@ class NinjaParser:
             os.environ.get("PYTHONPATH", "") + ":" + self.codeRootDir
         )
         exe = cmd.split(" ")
+        if exe[0].endswith("/mono"):
+            for f in outputs:
+                self.generatedFiles[f] = (
+                    build,
+                    build.vars.get("cmake_ninja_workdir", ""),
+                )
+            # Should generate empty files
+            # skip mono
+            return
         if exe[0].endswith("/protoc"):
             for f in outputs:
                 self.generatedFiles[f] = (build, None)
