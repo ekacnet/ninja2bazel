@@ -531,6 +531,7 @@ class NinjaParser:
         if not build:
             return
         workDir = build.vars.get("cmake_ninja_workdir", "")
+        srcDir = self.codeRootDir
         if workDir.endswith(os.path.sep):
             workDir = workDir[:-1]
         if isCPPLikeFile(fileName):
@@ -583,6 +584,7 @@ class NinjaParser:
                 True,
                 tempTopFolder,
                 workDir,
+                srcDir,
             )
             if len(cppIncludes.notFoundHeaders) > 0 and includes != "":
                 logging.warning(
@@ -683,6 +685,7 @@ class NinjaParser:
     def _finalizeHeadersForNonGeneratedFileForBuild(
         self, elem: BuildTarget, build: Build, current_dir: str, workDir: str
     ) -> Set[BuildTarget]:
+        srcDir = self.codeRootDir
         generatedOutputsNeeded: Set[BuildTarget] = set()
         includes_dirs: List[str] = []
         generated = False
@@ -728,6 +731,7 @@ class NinjaParser:
                 generated,
                 tempDirName,
                 workDir,
+                srcDir,
             )
             if len(cppIncludes.notFoundHeaders) > 0:
                 for h in cppIncludes.notFoundHeaders:
