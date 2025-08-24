@@ -348,8 +348,12 @@ class NinjaParser:
                 elif d.startswith("/"):
                     imp = self.getCCImportForExternalDep(v)
                     if imp is None:
-                        logging.info(f"Missing {d} as an external dependency")
-                        v.markAsExternal()
+                        if d not in self.missing:
+                            logging.info(f"Missing {d} as an external dependency")
+                            v.markAsExternal()
+                            self.missing[d] = v
+                        else:
+                            v = self.missing[d]
                     else:
                         v = imp
                 else:

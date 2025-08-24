@@ -705,7 +705,7 @@ class BazelTarget(BaseBazelTarget):
             else:
                 ret.append(f"    {k} = [")
 
-                def __getPrefix(d: BaseBazelTarget | BazelCCImport):
+                def __getPrefix(d: Union[BaseBazelTarget, BazelCCImport]):
                     return _getPrefix(d, self.location)
 
                 def cmp_deps(a, b):
@@ -864,7 +864,7 @@ class BazelGRPCCCProtoLibrary(BaseBazelTarget):
             elif len(v) > 0:
                 ret.append(f"    {k} = [")
 
-                def __getPrefix(d: BaseBazelTarget | BazelCCImport):
+                def __getPrefix(d: Union[BaseBazelTarget, BazelCCImport]):
                     return _getPrefix(d, self.location)
 
                 def cmp_deps(a, b):
@@ -923,7 +923,7 @@ class BazelProtoLibrary(BaseBazelTarget):
             elif len(v) > 0:
                 ret.append(f"    {k} = [")
 
-                def __getPrefix(d: BaseBazelTarget | BazelCCImport):
+                def __getPrefix(d: Union[BaseBazelTarget, BazelCCImport]):
                     return _getPrefix(d, self.location)
 
                 def cmp_deps(a, b):

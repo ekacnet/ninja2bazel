@@ -634,13 +634,16 @@ class Build:
             workDir = None
             if el.producedby is not None:
                 workDir = el.producedby.vars.get("cmake_ninja_workdir", "")
+            logging.info(
+                f"Handling includes for {el.name} with includes {el.includes} in {ctx.current.name}"
+            )
             cls._handleIncludeBazelTarget(el, ctx, workDir)
             if not isinstance(ctx.current, BazelTarget):
                 return
 
     @classmethod
     def _handleIncludeBazelTarget(
-        cls, el: "BuildTarget", ctx: BazelBuildVisitorContext, workDir: str | None
+        cls, el: "BuildTarget", ctx: BazelBuildVisitorContext, workDir: Union[str, None]
     ):
         for i, d in el.includes:
             generated = False
@@ -1252,7 +1255,7 @@ class Build:
     def getRawcommand(self) -> str:
         return self.rulename.vars.get("COMMAND", "")
 
-    def getCoreCommand(self) -> Optional[Tuple[str, str | None]]:
+    def getCoreCommand(self) -> Optional[Tuple[str, Optional[str]]]:
         command = self.rulename.vars.get("command")
         if command is None:
             return None
