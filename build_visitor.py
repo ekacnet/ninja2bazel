@@ -2,8 +2,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from build import (BazelBuildVisitorContext, Build, BuildTarget, TargetType,
-                   VisitorType)
+from build import BazelBuildVisitorContext, Build, BuildTarget, TargetType, VisitorType
 from visitor import VisitorContext
 
 
@@ -52,7 +51,6 @@ class BuildVisitor:
         else:
             assert False
 
-
     @classmethod
     def getVisitor(cls) -> VisitorType:
         def visitor(el: "BuildTarget", ctx: VisitorContext, _var: bool = False):
@@ -66,14 +64,10 @@ class BuildVisitor:
 
             assert isinstance(ctx, BazelBuildVisitorContext)
             # FIXME this is most probably wrong after all and should be removed
-            if (
-                parentBuild is not None and
-                ctx.parentIsPhony and
-                ctx.current is None
-            ):
+            if parentBuild is not None and ctx.parentIsPhony and ctx.current is None:
                 pass
-                #logging.info( f"Skipping {el.name} {showParentBuildDetail(parentBuild)} because it's a chain of empty targets")
-                #return False
+                # logging.info( f"Skipping {el.name} {showParentBuildDetail(parentBuild)} because it's a chain of empty targets")
+                # return False
             if el.producedby is not None:
                 build = el.producedby
                 return BuildVisitor.visitProduced(ctx, el, build)
@@ -85,6 +79,7 @@ class BuildVisitor:
                 return True
 
         return visitor
+
 
 def showParentBuildDetail(build: Build) -> str:
     output = build.outputs[0]
