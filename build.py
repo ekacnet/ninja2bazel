@@ -1336,7 +1336,6 @@ class Build:
             "-O",
             "-march",
             "-mtune",
-            "-std=",
             "-DCOMPILATION_UNIT=",
             "-stdlib=",
             "-gz",

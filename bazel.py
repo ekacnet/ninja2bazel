@@ -4,6 +4,8 @@ import re
 from functools import cache, cmp_to_key, total_ordering
 from itertools import combinations
 from typing import Any, Callable, Dict, List, Optional, Set, Type, TypeVar, Union
+from copy import deepcopy
+
 
 PREGENERATED_LOCATION = "<pregenerated>"
 
@@ -392,6 +394,45 @@ class BazelBuild:
         self, targetName: str, targetLocation: str, postProcessCallback: PostProcess
     ):
         self.postProcess[f"{targetName}{targetLocation}"] = postProcessCallback
+
+    def genAdditionalDeps(self):
+        """
+        This is to generate the additional dependencies that might be neeeded
+        """
+        targets = set(self.bazelTargets)
+        for t in sorted(targets):
+            if not (isinstance(t, BazelTarget)) or t.type not in [
+                "cc_library",
+                "cc_binary",
+                "cc_test",
+            ]:
+                continue
+            c_sources = [
+                f for f in t.srcs if f.name.endswith(".c") or f.name.endswith(".C")
+            ]
+            nonc_sources = [
+                f
+                for f in t.srcs
+                if not (f.name.endswith(".c") or f.name.endswith(".C"))
+            ]
+            if len(c_sources) and len(nonc_sources):
+                sublib = BazelTarget(t.type, f"_{t.name}_c", t.location)
+                sublib.includeDirs = deepcopy(t.includeDirs)
+                sublib.srcs = c_sources
+                sublib.addPrefixIfRequired = t.addPrefixIfRequired
+                sublib.copts = [
+                    o for o in t.copts if not re.match(r'^"-std=(?:c|gnu)\+\+', o)
+                ]
+                sublib.defines = t.defines
+                sublib.deps = t.deps
+                sublib.hdrs = t.hdrs
+                self.bazelTargets.add(sublib)
+
+                t.copts = [o for o in t.copts if not re.match(r'^"-std=(?:c|gnu)\d', o)]
+                t.srcs = nonc_sources
+                t.hdrs = set()
+                t.deps = set()
+                t.deps.add(sublib)
 
     def genBazelBuildContent(self) -> Dict[str, str]:
         ret: Dict[str, str] = {}
