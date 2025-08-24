@@ -1253,7 +1253,7 @@ class Build:
             "-DNDEBUG",
             "-fPIC",
         ]
-        prefixNotToKeep = ["-O", "-march", "-mtune", "-std="]
+        prefixNotToKeep = ["-O", "-march", "-mtune", "-std=", "-DCOMPILATION_UNIT="]
 
         def flagMatchPrefix(flag: str) -> bool:
             for prefix in prefixNotToKeep:
@@ -1263,6 +1263,8 @@ class Build:
 
         for define in self.vars.get("DEFINES", "").split(" "):
             if define in flagsNotToKeep:
+                pass
+            elif flagMatchPrefix(define):
                 pass
             elif define in ctx.flagsToIgnore:
                 pass
