@@ -56,6 +56,7 @@ def _findCPPIncludeForFile(
     compilerIncludes: List[str],
     generatedFiles: Dict[str, Any],
     generatedDir: Optional[str],
+    workDir: str,
 ) -> Tuple[bool, CPPIncludes]:
     found = False
     ret = CPPIncludes(set(), set(), set(), set())
@@ -115,8 +116,25 @@ def _findCPPIncludeForFile(
                 )
             break
 
+        if os.path.exists(f"{workDir}{full_file_name}"):
+            # The searched header is a pre generated one that whose path match the includes
+            # There might be something to do remove prefixes
+            ret.neededGeneratedFiles.add((full_file_name, d))
+            found = True
+            check = True
+            generatedFileFullName = full_file_name
+            use_generated_dir = False
+            # we don't want to use the workDir as a prefix for the pre generated files
+            tempDir = workDir
+            full_file_name = f"{workDir}{full_file_name}"
+            logging.info(f"Found generated {file} in in the pregenerated with {d}")
+            # We let _finalizeHeadersForNonGeneratedFileForBuild figure out what to do
+            break
+
         if not os.path.exists(full_file_name) or os.path.isdir(full_file_name):
             continue
+
+        # Beyond this point we know that the file exists in a particular include path
 
         logging.debug(f"Found {file} in the includes variable using {d}")
         # Check if the file is part of the cc_imports as we don't want to recurse for headers there
@@ -161,6 +179,7 @@ def _findCPPIncludeForFile(
             generatedFiles,
             use_generated_dir,
             generatedDir,
+            workDir,
         )
         if use_generated_dir:
             newfoundHeaders = set()
@@ -190,6 +209,7 @@ def _findCPPIncludeForFileSameDir(
     generatedFiles: Dict[str, Any],
     generatedDir: Optional[str],
     generated: bool = False,
+    workDir: str = "",
 ) -> Tuple[bool, CPPIncludes]:
     ret = CPPIncludes(set(), set(), set(), set())
     found = False
@@ -244,6 +264,7 @@ def _findCPPIncludeForFileSameDir(
         generatedFiles,
         generated,
         generatedDir,
+        workDir,
     )
     ret += cppIncludes
     return found, ret
@@ -257,6 +278,7 @@ def findCPPIncludes(
     generatedFiles: Dict[str, Any],
     generated: bool = False,
     generatedDir: Optional[str] = None,
+    workDir: str = "",
 ) -> CPPIncludes:
     key = f"{name}"
     seenkey = f"{name} {includes_dirs}"
@@ -291,6 +313,7 @@ def findCPPIncludes(
                 generatedFiles,
                 generatedDir,
                 generated,
+                workDir,
             )
             if not found:
                 if len(includes_dirs) == 0:
@@ -304,6 +327,7 @@ def findCPPIncludes(
                     compilerIncludes,
                     generatedFiles,
                     generatedDir,
+                    workDir,
                 )
                 ret += cppIncludes
             else:
@@ -320,6 +344,7 @@ def findCPPIncludes(
                 compilerIncludes,
                 generatedFiles,
                 generatedDir,
+                workDir,
             )
             ret += cppIncludes
 
@@ -348,6 +373,7 @@ def findCPPIncludes(
                     compilerIncludes,
                     generatedFiles,
                     generatedDir,
+                    workDir,
                 )
                 ret += cppIncludes
                 found = True
