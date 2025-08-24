@@ -646,11 +646,11 @@ class Build:
                 return
             # Not produced aka it's a file
             v = ctx.rootdir
-            ctx.current.addSrc(
-                cls._genExportedFile(
-                    el.shortName, ctx.current.location, None, not el.name.startswith(v)
-                )
+            exported = cls._genExportedFile(
+                el.shortName, ctx.current.location, None, not el.name.startswith(v)
             )
+            ctx.bazelbuild.bazelTargets.add(exported)
+            ctx.current.addSrc(exported)
 
             if el.includes is None:
                 return
