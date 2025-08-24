@@ -1,0 +1,137 @@
+cc_import(
+        name = "libssl",
+        static_libs = "/usr/local/lib64/libssl.a",
+        hdrs = glob(["/opt/homebrew/opt/openssl@3/include/openssl/*.h"]),
+        system_provided = 1,
+        alias = "@openssl//:ssl",
+)
+
+cc_import(
+        name = "libcrypto",
+        static_libs = "/usr/local/lib64/libcrypto.a",
+        hdrs = glob(["/opt/homebrew/opt/openssl@3/include/openssl/*.h"]),
+        system_provided = 1,
+        alias = "@openssl//:crypto",
+)
+cc_import(
+        name = "boost_context",
+        static_libs = "/opt/homebrew/Cellar/boost@1.85/1.85.0_3/lib/libboost_context.a",
+        hdrs = glob(["/opt/homebrew/Cellar/boost@1.85/1.85.0_3/include/boost/context/**.hpp"]),
+        system_provided = 1,
+        alias = "@boost.context//:boost.context",
+)
+cc_import(
+        name = "boost_functional",
+        static_libs = "/opt/homebrew/Cellar/boost@1.85/1.85.0_3/lib/libboost_functional.a",
+        hdrs = glob(["/opt/homebrew/Cellar/boost@1.85/1.85.0_3/include/boost/functional/**/*.hpp"]),
+        system_provided = 1,
+        alias = "@boost.functional//:boost.functional",
+)
+cc_import(
+        name = "boost_container",
+        static_libs = "/opt/homebrew/Cellar/boost@1.85/1.85.0_3/lib/libboost_container.a",
+        hdrs = glob(["/opt/homebrew/Cellar/boost@1.85/1.85.0_3/include/boost/container/**/*.hpp"]),
+        system_provided = 1,
+        alias = "@boost.container//:boost.container",
+)
+cc_import(
+        name = "boost_lockfree",
+        static_libs = "/opt/homebrew/Cellar/boost@1.85/1.85.0_3/lib/libboost_lockfree.a",
+        hdrs = glob(["/opt/homebrew/Cellar/boost@1.85/1.85.0_3/include/boost/lockfree/**/*.hpp"]),
+        system_provided = 1,
+        alias = "@boost.lockfree//:boost.lockfree",
+)
+cc_import(
+        name = "boost_variant",
+        static_libs = "/opt/homebrew/Cellar/boost@1.85/1.85.0_3/lib/libboost_variant.a",
+        hdrs = glob(["/opt/homebrew/Cellar/boost@1.85/1.85.0_3/include/boost/variant.hpp","/opt/boost_1_85_0/include/boost/variant/**/*.hpp"]),
+        system_provided = 1,
+        alias = "@boost.variant//:boost.variant",
+)
+cc_import(
+        name = "boost_spirit",
+        static_libs = "/opt/homebrew/Cellar/boost@1.85/1.85.0_3/lib/libboost_spirit.a",
+        hdrs = glob(["/opt/homebrew/Cellar/boost@1.85/1.85.0_3/include/boost/spirit/**/*.hpp"]),
+        system_provided = 1,
+        alias = "@boost.spirit//:boost.spirit",
+)
+cc_import(
+        name = "msgpack",
+        static_libs = "/opt/msgpack_3.3.0/include/libmsgpackc.a",
+        hdrs = glob(["/opt/homebrew/include/msgpack/**/*.hpp",
+                     "/opt/homebrew/include/msgpack.hpp"]),
+        system_provided = 1,
+        alias = "@msgpack-c//:msgpack",
+)
+cc_import(
+        name = "boost_asio",
+        static_libs = "/opt/homebrew/Cellar/boost@1.85/1.85.0_3/lib/libboost_asio.a",
+        hdrs = glob(["/opt/homebrew/Cellar/boost@1.85/1.85.0_3/include/boost/asio.hpp"]),
+        system_provided = 1,
+        alias = "@boost.asio//:boost.asio",
+)
+cc_import(
+        name = "boost_preprocessor",
+        static_libs = "/opt/homebrew/Cellar/boost@1.85/1.85.0_3/lib/libboost_preprocessor.a",
+        hdrs = glob(["/opt/homebrew/Cellar/boost@1.85/1.85.0_3/include/boost/preprocessor/**/*.hpp"]),
+        system_provided = 1,
+        alias = "@boost.preprocessor//:boost.preprocessor",
+)
+cc_import(
+        name = "boost_filesystem",
+        static_libs = "/opt/homebrew/Cellar/boost@1.85/1.85.0_3/lib/libboost_filesystem.a",
+        hdrs = glob(["/opt/homebrew/Cellar/boost@1.85/1.85.0_3/include/boost/filesystem/**.hpp"]),
+        system_provided = 1,
+        alias = "@boost.filesystem//:boost.filesystem",
+)
+cc_import(
+        name = "boost_atomic",
+        static_libs = "/opt/homebrew/Cellar/boost@1.85/1.85.0_3/lib/libboost_atomic.a",
+        hdrs = glob(["/opt/homebrew/Cellar/boost@1.85/1.85.0_3/include/boost/atomic/**.hpp"]),
+        system_provided = 1,
+        alias = "@boost.atomic//:boost.atomic",
+)
+cc_import(
+        name = "boost_iostreams",
+        static_libs = "/opt/homebrew/Cellar/boost@1.85/1.85.0_3/lib/libboost_iostreams.a",
+        hdrs = glob(["/opt/homebrew/Cellar/boost@1.85/1.85.0_3/include/boost/iostreams/**.hpp"]),
+        system_provided = 1,
+        alias = "@boost.iostreams//:boost.iostreams",
+)
+cc_import(
+        name = "boost_serialization",
+        static_libs = "/opt/homebrew/Cellar/boost@1.85/1.85.0_3/lib/libboost_serialization.a",
+        hdrs = glob(["/opt/homebrew/Cellar/boost@1.85/1.85.0_3/include/boost/serialization/**.hpp"]),
+        system_provided = 1,
+        alias = "@boost.serialization//:boost.serialization",
+)
+cc_import(
+        name = "boost_system",
+        static_libs = "/opt/homebrew/Cellar/boost@1.85/1.85.0_3/lib/libboost_system.a",
+        hdrs = glob(["/opt/homebrew/Cellar/boost@1.85/1.85.0_3/include/boost/system/**.hpp"]),
+        system_provided = 1,
+        alias = "@boost.system//:boost.system",
+)
+cc_import(
+        name = "boost_format",
+        static_libs = "/opt/homebrew/Cellar/boost@1.85/1.85.0_3/lib/libboost_system.a",
+        hdrs = glob(["/opt/homebrew/Cellar/boost@1.85/1.85.0_3/include/boost/format*.hpp"]),
+        system_provided = 1,
+        alias = "@boost.format//:boost.format",
+)
+cc_import(
+        name = "lz4",
+        static_libs = "/usr/local/lib/liblz4.a",
+        hdrs = glob(["/usr/local/include/lz4*.h"]),
+        system_provided = 1,
+        alias = "@lz4//:lz4",
+)
+
+cc_import(
+        name = "jemalloc",
+        static_libs = "/usr/local/lib/libjemalloc.a",
+        hdrs = glob(["/usr/local/include/jemalloc/*.h"]),
+        system_provided = 1,
+        alias = "@jemalloc//:jemalloc",
+)
+
