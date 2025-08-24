@@ -121,6 +121,8 @@ class BazelCCImport:
 
     def setAlias(self, alias: str):
         self.alias = alias
+        module = alias.split("/")[0]
+        self.location = f"{module}//"
 
     @property
     def deps(self) -> set[Union["BazelCCImport", "BaseBazelTarget"]]:
@@ -205,13 +207,6 @@ class BazelCCImport:
         ret = []
 
         if self.alias is not None:
-            ret.append("alias(")
-            ret.append(f'    name = "{self.name}",')
-            ret.append(f'    actual = "{self.alias}",')
-            ret.append('    tags = ["manual"],')
-            ret.append('    visibility = ["//visibility:public"],')
-            ret.append(")")
-            output[self.name] = ret
             return output
 
         if len(self.hdrs) > 1:
@@ -306,6 +301,8 @@ class BazelCCImport:
         return output
 
     def targetName(self) -> str:
+        if self.alias is not None:
+            return "/".join(self.alias.split("/")[2:])
         if self.name.startswith(":"):
             return f"{self.name}"
         else:
