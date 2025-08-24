@@ -782,7 +782,8 @@ class BazelGenRuleTarget(BaseBazelTarget):
     def getOutputs(
         self, name: str, stripedPrefix: Optional[str] = None
     ) -> List["BazelGenRuleTargetOutput"]:
-        if stripedPrefix:
+
+        if stripedPrefix and name.startswith(stripedPrefix):
             name = name.replace(stripedPrefix, "")
         if self.aliases.get(name) is not None:
             logging.info(f"Found alias {name} to {self.aliases[name]}")
