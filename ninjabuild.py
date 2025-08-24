@@ -341,16 +341,19 @@ class NinjaParser:
                 except Exception as _:
                     logging.error("Couldn't find a target for {d}")
                     raise
-                if d.startswith("/"):
+                if v.name.startswith(self.codeRootDir):
+                    logging.info(f"Marking {v} as an known dependency")
+                    v.markAsFile()
+                elif v.name.endswith("CMakeLists.txt") or v.name.endswith(".cmake"):
+                    quiet = True
+                    v.markAsExternal(quiet)
+                elif d.startswith("/"):
                     imp = self.getCCImportForExternalDep(v)
                     if imp is None:
                         logging.info(f"Missing {d} as an external dependency")
                         v.markAsExternal()
                     else:
                         v = imp
-                elif v.name.endswith("CMakeLists.txt") or v.name.endswith(".cmake"):
-                    quiet = True
-                    v.markAsExternal(quiet)
                 else:
                     v.markAsUnknown()
                     other = self.missing.get(d)
