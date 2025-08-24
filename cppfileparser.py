@@ -317,8 +317,8 @@ def findCPPIncludes(
             )
             if not found:
                 if len(includes_dirs) == 0:
-                    empty = CPPIncludes(set(), set(), set(), set())
-                    return empty
+                    logging.info(f"No include dirs for {name} with {file}")
+                    continue
                 found, cppIncludes = _findCPPIncludeForFile(
                     file,
                     includes_dirs,
@@ -329,13 +329,11 @@ def findCPPIncludes(
                     generatedDir,
                     workDir,
                 )
-                ret += cppIncludes
-            else:
-                ret += cppIncludes
+            ret += cppIncludes
         else:
             if len(includes_dirs) == 0:
-                empty = CPPIncludes(set(), set(), set(), set())
-                return empty
+                logging.info(f"No include dirs for {name} with {file}")
+                continue
             found, cppIncludes = _findCPPIncludeForFile(
                 file,
                 includes_dirs,
