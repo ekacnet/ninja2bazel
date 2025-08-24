@@ -624,9 +624,40 @@ class NinjaParser:
                 i.setDeps(list(cppIncludes.neededImports))
             self.cacheHeaders[fileName] = cppIncludes
 
-    def _finalizeHeadersForNonGeneratedFiles(self, current_dir: str):
+    def _find_deps(self, target: BuildTarget) -> List[BuildTarget]:
+        build = target.producedby
+        if not build:
+            return []
+        ret = []
+        if build.rulename.name == "phony":
+            # We don't want to deal with phony targets
+            return ret
+        for dep in build.depends:
+            if not dep.producedby:
+                # If the dependency is not produced by a build, we skip it
+                continue
+            ret.append(dep)
+            ret.extend(self._find_deps(dep))
+        for dep in build.getInputs():
+            if not dep.producedby:
+                # If the dependency is not produced by a build, we skip it
+                continue
+            ret.append(dep)
+            ret.extend(self._find_deps(dep))
+        return ret
+
+    def _finalizeHeadersForNonGeneratedFiles(
+        self, current_dir: str, top_levels: List[BuildTarget]
+    ):
+        logging.info(
+            f"Finalizing headers for non-generated files in {current_dir} {top_levels}"
+        )
         logging.info(f"There are {len(self.all_outputs.values())} outputs")
-        for t in self.all_outputs.values():
+        all_outputs = set()
+        for bt in top_levels:
+            all_outputs.update(self._find_deps(bt))
+
+        for t in all_outputs:
             build = t.producedby
             if not build:
                 continue
@@ -817,7 +848,7 @@ class NinjaParser:
             # self.finiliazeHeadersForFile(t, f, dirpath, ret, False)
         return trees
 
-    def finalizeHeaders(self, current_dir: str):
+    def finalizeHeaders(self, current_dir: str, top_levels: List[BuildTarget]):
         # We might want to iterate twice on the values,
         # the first time we might want to get the builds that are custom commands because they are
         # supposed to generate files that are used by other builds
@@ -826,7 +857,7 @@ class NinjaParser:
         end = time.time()
         print(f"Time to finalize header for generated = {end - start}", file=sys.stdout)
         start = end
-        self._finalizeHeadersForNonGeneratedFiles(current_dir)
+        self._finalizeHeadersForNonGeneratedFiles(current_dir, top_levels)
         end = time.time()
         print(
             f"Time to finalize header for non generated = {end - start}",
@@ -1085,7 +1116,7 @@ def getBuildTargets(
 
     top_levels = getToplevels(parser, top_level_targets)
     logging.info(f"Found {len(top_levels)} top levels")
-    parser.finalizeHeaders(dir)
+    parser.finalizeHeaders(dir, top_levels)
     return top_levels
 
 
