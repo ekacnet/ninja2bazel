@@ -5,6 +5,7 @@ from typing import Optional, Set, Union
 
 from bazel import BazelCCImport, BaseBazelTarget
 
+
 def _processValue(inflightVals: str, inflightAttr: str, current: BazelCCImport):
     inGlob = False
     assert inflightVals is not None
@@ -34,7 +35,7 @@ def _processValue(inflightVals: str, inflightAttr: str, current: BazelCCImport):
                     subVal = subVal[:-1]
                 subVal = subVal.strip()
                 # replace quotes ...
-                subVal =subVal.replace('"', "").replace("'", "")
+                subVal = subVal.replace('"', "").replace("'", "")
                 if len(subVal) > 0:
                     vals.append(subVal)
     if inGlob:
@@ -42,6 +43,7 @@ def _processValue(inflightVals: str, inflightAttr: str, current: BazelCCImport):
         vals.extend(parse_glob("".join(tmp)))
         tmp = []
     setattr(current, inflightAttr, vals)
+
 
 def parseCCImports(raw_imports: list[str], location: str) -> list[BazelCCImport]:
     imports = {}
@@ -119,7 +121,9 @@ def parseCCImports(raw_imports: list[str], location: str) -> list[BazelCCImport]
             if d.location == "":
                 if d.name not in imports:
                     raise ValueError(f"Dependency {d} not found")
-                logging.debug(f"Adding dependency {d.name} location {imports[d.name].location}")    
+                logging.debug(
+                    f"Adding dependency {d.name} location {imports[d.name].location}"
+                )
                 newDeps.add(imports[d.name])
             else:
                 logging.debug(f"Adding dependency {d.name} location {d.location}")
@@ -134,13 +138,14 @@ def cleanupVar(var: str) -> str:
 
 
 def match_glob(raw_glob: str) -> bool:
-    regex = r'glob\(\s*\[(.*)\]\s*\)'
+    regex = r"glob\(\s*\[(.*)\]\s*\)"
     matches = re.search(regex, raw_glob)
     return matches is not None
 
+
 def parse_glob(raw_glob: str) -> list[str]:
     ret: list[str] = []
-    regex = r'glob\(\s*\[(.*)\]\s*\)'
+    regex = r"glob\(\s*\[(.*)\]\s*\)"
 
     logging.debug(f"Processing glob: {raw_glob}")
     matches = re.search(regex, raw_glob)

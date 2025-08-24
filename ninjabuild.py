@@ -10,10 +10,8 @@ import time
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 from bazel import BazelBuild, BazelCCImport, BazelTarget
-from build import (Build, BuildTarget, Rule, TargetType,
-                   TopLevelGroupingStrategy)
-from build_visitor import (BazelBuildVisitorContext, BuildVisitor,
-                           PrintVisitorContext)
+from build import Build, BuildTarget, Rule, TargetType, TopLevelGroupingStrategy
+from build_visitor import BazelBuildVisitorContext, BuildVisitor, PrintVisitorContext
 from cppfileparser import CPPIncludes, findCPPIncludes, parseIncludes
 from helpers import resolvePath
 from protoparser import findProtoIncludes
@@ -437,7 +435,7 @@ class NinjaParser:
                 "COMMAND", ""
             ) or "/bin/cmake" in build.vars.get("COMMAND", ""):
                 logging.debug(
-                    f"Command for {target.name}: {build.vars.get('COMMAND')} is not a \"core\" one"
+                    f'Command for {target.name}: {build.vars.get("COMMAND")} is not a "core" one'
                 )
             return
         cmd, runDir = coreRet
@@ -923,7 +921,6 @@ class NinjaParser:
         self._visitGraph(start)
 
     def _visitGraph(self, target: BuildTarget):
-
         if target in self.visited:
             logging.info(f"Already visited {target.name}")
             return

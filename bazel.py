@@ -3,8 +3,7 @@ import os
 import re
 from functools import cache, cmp_to_key, total_ordering
 from itertools import combinations
-from typing import (Any, Callable, Dict, List, Optional, Set, Type, TypeVar,
-                    Union)
+from typing import Any, Callable, Dict, List, Optional, Set, Type, TypeVar, Union
 
 BazelTargetStrings = Dict[str, List[str]]
 # Define a type variable that can be any type
@@ -134,7 +133,6 @@ class BazelCCImport:
         self._deps = set()
         for d in deps:
             if type(d) is str:
-
                 logging.info(f"Adding dep {d}")
                 matches = re.match(r"(.*):(.+)", d)
                 if not matches:
@@ -371,7 +369,6 @@ class BazelBuild:
 
     def cleanup(self: "BazelBuild") -> None:
         for type in ["cc_binary", "cc_library", "cc_test"]:
-
             allCopt: List[Set[str]] = []
             for t in self.bazelTargets:
                 if isinstance(t, BazelTarget):

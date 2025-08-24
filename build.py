@@ -6,10 +6,20 @@ from enum import Enum
 from functools import total_ordering
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 from helpers import resolvePath
-from bazel import (BaseBazelTarget, BazelBuild, BazelCCImport,
-                   BazelCCProtoLibrary, BazelExternalDep, BazelGenRuleTarget,
-                   BazelGRPCCCProtoLibrary, BazelProtoLibrary, BazelTarget,
-                   ExportedFile, ShBinaryBazelTarget, getObject)
+from bazel import (
+    BaseBazelTarget,
+    BazelBuild,
+    BazelCCImport,
+    BazelCCProtoLibrary,
+    BazelExternalDep,
+    BazelGenRuleTarget,
+    BazelGRPCCCProtoLibrary,
+    BazelProtoLibrary,
+    BazelTarget,
+    ExportedFile,
+    ShBinaryBazelTarget,
+    getObject,
+)
 from visitor import VisitorContext
 
 VisitorType = Callable[["BuildTarget", "VisitorContext", bool], bool]
@@ -220,7 +230,6 @@ class BuildTarget:
         return self.name
 
     def __cmp__(self, other) -> bool:
-
         if self.name == other.name:
             return True
         else:
@@ -832,7 +841,7 @@ class Build:
             firstOutput = sorted(list(outFiles))[0]
             outputDir = (
                 f"$$(dirname $(location {firstOutput}))/"
-                + f'{"/".join([ ".." for d in firstOutput.split("/")[:-1]])}'
+                + f"{'/'.join(['..' for d in firstOutput.split('/')[:-1]])}"
                 + "/"
             )
             lastArgIsOption = False
@@ -1129,7 +1138,6 @@ class Build:
         el: "BuildTarget",
         cmd: str,
     ) -> bool:
-
         if self.rulename.name == "CUSTOM_COMMAND" and "bin/protoc" in self.vars.get(
             "COMMAND", ""
         ):
@@ -1170,17 +1178,14 @@ class Build:
             "-DNDEBUG",
             "-fPIC",
         ]
-        prefixNotToKeep = [
-            "-O",
-            "-march",
-            "-mtune",
-            "-std="
-        ]
+        prefixNotToKeep = ["-O", "-march", "-mtune", "-std="]
+
         def flagMatchPrefix(flag: str) -> bool:
             for prefix in prefixNotToKeep:
                 if flag.startswith(prefix):
                     return True
             return False
+
         for define in self.vars.get("DEFINES", "").split(" "):
             if define in flagsNotToKeep:
                 pass

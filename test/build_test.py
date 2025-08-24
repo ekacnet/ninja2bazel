@@ -5,8 +5,14 @@ from unittest.mock import Mock, patch
 
 sys.path.append(sys.path[0])
 sys.path[0] = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-from build import (Build, BuildFileGroupingStrategy, BuildTarget, Rule,
-                   TargetType, TopLevelGroupingStrategy)
+from build import (
+    Build,
+    BuildFileGroupingStrategy,
+    BuildTarget,
+    Rule,
+    TargetType,
+    TopLevelGroupingStrategy,
+)
 
 sys.modules["bazel"] = Mock()
 sys.modules["visitor"] = Mock()
