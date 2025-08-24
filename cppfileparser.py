@@ -18,7 +18,9 @@ def findAllHeaderFiles(current_dir: str) -> Generator[str, None, None]:
 
 def parseIncludes(includes: str) -> List[str]:
     ret = []
-    matches = re.findall(r"-I([^ ](?:[^ ]|(?: (?!(?:-I)|(?:-isystem)|$)))+)", includes)
+    matches = re.findall(
+        r"(?:-I|-isystem ?)([^ ](?:[^ ]|(?: (?!(?:-I)|(?:-isystem)|$)))+)", includes
+    )
     for m in matches:
         if m not in ret:
             ret.append(m)
