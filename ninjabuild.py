@@ -17,7 +17,7 @@ from build_visitor import (BazelBuildVisitorContext, BuildVisitor,
 from cppfileparser import CPPIncludes, findCPPIncludes, parseIncludes
 from helpers import resolvePath
 from protoparser import findProtoIncludes
-from visitor import VisitorContext, PrunedVisitorContext
+from visitor import PrunedVisitorContext, VisitorContext
 
 IGNORED_STANZA = [
     "ninja_required_version",
@@ -37,8 +37,8 @@ IGNORED_TARGETS = [
 
 COMPILELIB_TO_CCIMPORTLIB = {
     "m": "libm",
-    
 }
+
 
 def _copyFilesBackNForth(sourceDir, destDir):
     # Ensure the destination directory exists, create it if it doesn't
@@ -175,8 +175,9 @@ class NinjaParser:
         self.rules[rule.name] = rule
         rule.vars = vars
 
-
-    def _getBuildTarget(self, name: str, shortName: Optional[Tuple[str, Optional[str]]] = None) -> BuildTarget:
+    def _getBuildTarget(
+        self, name: str, shortName: Optional[Tuple[str, Optional[str]]] = None
+    ) -> BuildTarget:
         t = self.all_targets.get(name)
         if not t:
             if not shortName:
@@ -203,7 +204,9 @@ class NinjaParser:
         raw_inputs: List[str] = []
         raw_depends: List[str] = []
         raw_non_built_depends: List[str] = []
-        workDir = self.vars[self.currentContext].get("cmake_ninja_workdir", "donotexistslalala")
+        workDir = self.vars[self.currentContext].get(
+            "cmake_ninja_workdir", "donotexistslalala"
+        )
         maybeOutputs = []
 
         for i in range(len(arr)):
@@ -221,8 +224,13 @@ class NinjaParser:
             if shouldbreak:
                 for val in maybeOutputs:
                     # We want to keep the one with the full path it's much simplier when trying to find headers
-                    if not val.startswith(workDir) and "f{workDir}{val}" in maybeOutputs:
-                        logging.info(f"Skipping {val} as it's a duplicate of {workDir}{val}")
+                    if (
+                        not val.startswith(workDir)
+                        and "f{workDir}{val}" in maybeOutputs
+                    ):
+                        logging.info(
+                            f"Skipping {val} as it's a duplicate of {workDir}{val}"
+                        )
                     else:
                         shortName = self.getShortName(val)
                         outputs.append(
@@ -357,7 +365,7 @@ class NinjaParser:
             o = outputs[i]
             key = str(o)
             logging.info(f"Dealing with output {o.name}")
-            key = str(o) 
+            key = str(o)
             t = self.missing.get(key)
             if t is not None:
                 del self.missing[key]
@@ -387,7 +395,7 @@ class NinjaParser:
         if rule is None:
             logging.error(f"Coulnd't find a rule called {rulename}")
             return
-        build = Build(outputs, rule, inputs, [d for d in buildDeps ])
+        build = Build(outputs, rule, inputs, [d for d in buildDeps])
         for k2, v2 in self.vars[self.currentContext].items():
             build.vars[k2] = v2
 
@@ -565,9 +573,13 @@ class NinjaParser:
                     f"Couldn't find {cppIncludes.notFoundHeaders} headers for generated file {fileName}"
                 )
             if debug:
-                logging.info(f"For file {fileName} found headers {cppIncludes.foundHeaders}")
+                logging.info(
+                    f"For file {fileName} found headers {cppIncludes.foundHeaders}"
+                )
             for i in build.outputs:
-                if not (i.name.endswith(fileName) and len(cppIncludes.foundHeaders) > 0):
+                if not (
+                    i.name.endswith(fileName) and len(cppIncludes.foundHeaders) > 0
+                ):
                     # We are searching for the generated file(s) that end with f in the current build
                     # There might be a lot more files we are not interested with it right now
                     continue
@@ -609,15 +621,21 @@ class NinjaParser:
             if build.rulename.name == "phony":
                 # We don't want to deal with phony targets
                 continue
-            # FIXME think about deduping here 
+            # FIXME think about deduping here
             for i in build.getInputs():
-                generatedOutputsNeeded.update(self._finalizeHeadersForNonGeneratedFileForBuild(i, build, current_dir, workDir))
+                generatedOutputsNeeded.update(
+                    self._finalizeHeadersForNonGeneratedFileForBuild(
+                        i, build, current_dir, workDir
+                    )
+                )
             # TODO revisit if we need to extend the inputs o: the dependencies of the build
             # dependencies might have a side effect that is not desirable for generated files
             for g in generatedOutputsNeeded:
                 build.addInput(g)
 
-    def _finalizeHeadersForNonGeneratedFileForBuild(self, elem: BuildTarget, build: Build, current_dir: str, workDir: str) -> Set[BuildTarget]:
+    def _finalizeHeadersForNonGeneratedFileForBuild(
+        self, elem: BuildTarget, build: Build, current_dir: str, workDir: str
+    ) -> Set[BuildTarget]:
         generatedOutputsNeeded: Set[BuildTarget] = set()
         includes_dirs: List[str] = []
         generated = False
@@ -648,13 +666,9 @@ class NinjaParser:
             updated_include_dirs = []
             for dir in includes_dirs:
                 if dir.startswith(workDir):
-                    updated_include_dirs.append(
-                        dir.replace(workDir, "/generated")
-                    )
+                    updated_include_dirs.append(dir.replace(workDir, "/generated"))
                 elif workDir.endswith("/") and dir.startswith(workDir[:-1]):
-                    updated_include_dirs.append(
-                        dir.replace(workDir[:-1], "/generated")
-                    )
+                    updated_include_dirs.append(dir.replace(workDir[:-1], "/generated"))
                 else:
                     updated_include_dirs.append(dir)
 
@@ -680,9 +694,7 @@ class NinjaParser:
                         self.missingFiles[h].append(build)
             allIncludes = []
             for h2 in list(cppIncludes.foundHeaders):
-                name = self.getShortName(
-                    h2[0].replace("/generated", workDir), workDir
-                )
+                name = self.getShortName(h2[0].replace("/generated", workDir), workDir)
                 includeDir = h2[1]
                 allIncludes.append((name[0], includeDir))
             elem.setIncludedFiles(allIncludes)
@@ -738,7 +750,7 @@ class NinjaParser:
                 if f != elem.name:
                     tgt = self._getBuildTarget(f)
                 else:
-                    tgt = elem 
+                    tgt = elem
                 for p in deps:
                     if p[1] == "@":
                         tgtname = f"@{p[0]}"
@@ -749,18 +761,20 @@ class NinjaParser:
                     else:
                         # p[1] is the include path that was able to find this file
                         # ie. /opt/code/project/cpp/proto
-                        # and d will be the delta with the work directory (ie. /opt/code/project/) so 
+                        # and d will be the delta with the work directory (ie. /opt/code/project/) so
                         # somthing like cpp/proto
                         # it's important to know the delta because when calling protoc bazel won't let you provide
                         # the values for -I and so if there is a delta and we don't strip it bazel won't be able to find the
                         # included protobuf
                         (d, _) = self.getShortName(p[1], workDir)
-                        logging.debug(f"Adding internal dependency {p[0]} to {f} ({tgt.name}) delta directory: {d}")
+                        logging.debug(
+                            f"Adding internal dependency {p[0]} to {f} ({tgt.name}) delta directory: {d}"
+                        )
                         dep = self._getBuildTarget(p[0])
                         dep.addTargetSpecificParameters({"stripImportPrefix": f"/{d}"})
                         tgt.addDeps(dep)
-                        #(f, _) = self.getShortName(p[0], workDir)
-                        #f = f.replace(d + os.path.sep, "")
+                        # (f, _) = self.getShortName(p[0], workDir)
+                        # f = f.replace(d + os.path.sep, "")
         return generatedOutputsNeeded
 
     def _finalizeHeadersForGeneratedFiles(self, current_dir: str):
@@ -784,9 +798,9 @@ class NinjaParser:
                 trees.append(ret)
 
         # This needs to be done separately because we migth not know all the generated files when looking at file f
-        for (t, f, dirpath, ret) in filesToVisit:
-            pass 
-            #self.finiliazeHeadersForFile(t, f, dirpath, ret, False)
+        for t, f, dirpath, ret in filesToVisit:
+            pass
+            # self.finiliazeHeadersForFile(t, f, dirpath, ret, False)
         return trees
 
     def finalizeHeaders(self, current_dir: str):
@@ -880,21 +894,25 @@ class NinjaParser:
             logging.debug(f"{line} {len(line)}")
         self.directories.pop()
 
-
     def setCCImports(self, cc_imports: List[BazelCCImport]):
-        self.cc_imports = [self._getBuildTarget(imp.name, (imp.name, imp.location)).markAsExternal(True).setOpaque(imp) for imp in cc_imports]
+        self.cc_imports = [
+            self._getBuildTarget(imp.name, (imp.name, imp.location))
+            .markAsExternal(True)
+            .setOpaque(imp)
+            for imp in cc_imports
+        ]
 
     def setCompilerIncludes(self, compilerIncludes: List[str]):
         self.compilerIncludes = compilerIncludes
 
     def pruneTransitivePhonyTargets(self):
-        #FIXME 
+        # FIXME
         # revist that at some point
         startingBuild = self.all_outputs["all"].producedby
         return
 
         ctx = PrunedVisitorContext()
-    
+
     def debugGraph(self):
         start = self.all_outputs["all"]
         self.visited = set()
@@ -902,7 +920,7 @@ class NinjaParser:
         self._visitGraph(start)
 
     def _visitGraph(self, target: BuildTarget):
-        
+
         if target in self.visited:
             logging.info(f"Already visited {target.name}")
             return
@@ -914,12 +932,19 @@ class NinjaParser:
             return
         for tgt in build.getInputs():
             logging.info(f"Visiting input {tgt.name}")
-            #self._visitGraph(tgt)
+            # self._visitGraph(tgt)
         for tgt in build.depends:
             logging.info(f"Visiting depend{tgt.name}")
-            #self._visitGraph(tgt)
+            # self._visitGraph(tgt)
 
-    def _visitGraphToPrune(self, build: Build, ctx: PrunedVisitorContext, parentBuild: Optional[Build] = None, attribute: Optional[str] = None, index: Optional[int] = None):
+    def _visitGraphToPrune(
+        self,
+        build: Build,
+        ctx: PrunedVisitorContext,
+        parentBuild: Optional[Build] = None,
+        attribute: Optional[str] = None,
+        index: Optional[int] = None,
+    ):
         if build in ctx.visited:
             return
         else:
@@ -944,8 +969,11 @@ class NinjaParser:
             newElements[index] = None
             for input in build.getInputs():
                 newElements.append(input)
-            setattr(parentBuild, attribute, set(filter(lambda x: x is not None, newElements)))
-
+            setattr(
+                parentBuild,
+                attribute,
+                set(filter(lambda x: x is not None, newElements)),
+            )
 
     def resolveAliases(self):
         for b in self.buildEdges:
@@ -960,6 +988,7 @@ class NinjaParser:
                 if changed:
                     setattr(b, attr, set(elem))
 
+
 def canBePruned(b: Build) -> bool:
     if b.rulename.name != "phony":
         return False
@@ -972,18 +1001,30 @@ def canBePruned(b: Build) -> bool:
             return False
     return True
 
-def getToplevels(parser: NinjaParser) -> List[BuildTarget]:
-    b = parser.all_outputs["all"].producedby
-    if b is None:
-        logging.error("Couldn't find a build for all")
-        return []
-    return list(b.getInputs())
+
+def getToplevels(
+    parser: NinjaParser, top_level_targets: List[str]
+) -> List[BuildTarget]:
+    inputs = set()
+    for t in top_level_targets:
+        if t not in parser.all_outputs:
+            logging.error(f"Couldn't find target {t} in the parsed ninja file")
+            return []
+        b = parser.all_outputs[t].producedby
+        if b is None:
+            logging.error(f"Couldn't find a build for {t}")
+            return []
+        inputs.update(b.getInputs())
+    return list(inputs)
+
 
 def _printNiceDict(d: dict[str, Any]) -> str:
     return "".join([f"  {k}: {v}\n" for k, v in d.items()])
 
 
-def genBazel(buildTarget: BuildTarget, bb: BazelBuild, rootdir: str, flagsToIgnore: List[str]):
+def genBazel(
+    buildTarget: BuildTarget, bb: BazelBuild, rootdir: str, flagsToIgnore: List[str]
+):
     if rootdir.endswith("/"):
         dir = rootdir
     else:
@@ -1006,6 +1047,7 @@ def getBuildTargets(
     remap: Dict[str, str],
     cc_imports: List[BazelCCImport],
     compilerIncludes: List[str],
+    top_level_targets: List[str],
 ) -> List[BuildTarget]:
     TopLevelGroupingStrategy(directoryPrefix)
 
@@ -1022,13 +1064,13 @@ def getBuildTargets(
     parser.resolveAliases()
     parser.debugGraph()
 
-    if len(parser.missing) != 0:
+    if len(parser.missing) != 0 and "all" in top_level_targets:
         logging.error(
             f"Something is wrong there is {len(parser.missing)} missing dependencies:\n {_printNiceDict(parser.missing)}"
         )
         return []
 
-    top_levels = getToplevels(parser)
+    top_levels = getToplevels(parser, top_level_targets)
     logging.info(f"Found {len(top_levels)} top levels")
     parser.finalizeHeaders(dir)
     return top_levels
@@ -1050,7 +1092,10 @@ def printGraph(element: BuildTarget, ident: int = 0, file=sys.stdout):
 
 
 def genBazelBuildFiles(
-    top_levels: list[BuildTarget], rootdir: str, prefix: str, buildCustomizationDirectory: str
+    top_levels: list[BuildTarget],
+    rootdir: str,
+    prefix: str,
+    buildCustomizationDirectory: str,
 ) -> Dict[str, str]:
     bb = BazelBuild(prefix)
     if buildCustomizationDirectory.startswith("/"):
@@ -1062,11 +1107,12 @@ def genBazelBuildFiles(
     commonFlags: Dict[str, Dict[str, Union[str, Set[str]]]] = {}
     additionalsBazelIncludes: Dict[str, List[str]] = {}
 
-    postprocessingFilename= f"{dir}/postprocessing.py"
+    postprocessingFilename = f"{dir}/postprocessing.py"
     logging.info(f"Looking for postprocessing file {postprocessingFilename}")
     if os.path.exists(postprocessingFilename):
         sys.path.append(dir)
-        import postprocessing as pp # type: ignore
+        import postprocessing as pp  # type: ignore
+
         flagsToIgnore = pp.getFlagsToIgnore()
         logging.info(f"Flags to ignore {flagsToIgnore}")
         commonFlags = pp.getCommonFlags()
@@ -1075,7 +1121,6 @@ def genBazelBuildFiles(
             bb.addPostProcess(e[0], e[1], e[2])
             bb.setCommonFlags(commonFlags)
             bb.setAdditionalBazelHeaders(additionalsBazelIncludes)
-
 
     for e in sorted(top_levels):
         e.markTopLevel()
