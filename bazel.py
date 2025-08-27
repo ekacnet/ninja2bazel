@@ -750,18 +750,11 @@ class BazelTarget(BaseBazelTarget):
                         headers.append(h)
 
         sources = [f for f in self.srcs]
+        includes = set()
         copts = set()
         copts.update(self.copts)
         for dir in list(self.includeDirs):
-            # The second element IncludeDir is a flag to indicate if the header is generated
-            # and if so we need to add the bazel-out prefix to the -I option
-            if dir[1]:
-                dirName = (
-                    f'add_bazel_out_prefix("{self.location + os.path.sep + dir[0]}")'
-                )
-            else:
-                dirName = f'"{dir[0]}"'
-            copts.add(f'"-I{{}}".format({dirName})')
+            includes.add(f'"{dir[0]}"')
         # FIXME for the moment move defines to copts so that they are not propagated to
         # the targets that depends on it
         for define in self.defines:
@@ -780,6 +773,7 @@ class BazelTarget(BaseBazelTarget):
             "copts": list(copts),
             "defines": list(self.defines),
             "data": data,
+            "includes": list(includes),
             "linkopts": linkopts,
             "deps": list(deps),
         }
