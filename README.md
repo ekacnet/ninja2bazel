@@ -38,7 +38,7 @@ parser.py -p "." --top-level-target lib/libfdb_c.dylib  ~/Work/foundationdb/buil
 This won't be enough because of third-party dependencies but we will cover that soon after.
 
 Foundation DB bazelification allows us to demonstrate a new capability with `ninja2bazel`, use
-pre-built artifacts. It is notouriously public that foundationDB uses mono to generate C++ from
+pre-built artifacts. It is notouriously public that foundationDB uses mono/c# to generate C++ from
 `flow` files but we don't want to deal with that so instead we will use pre-generated files to not
 have to deal with mono during the bazel build, of course it means that every time you want to
 upgrade your version of foundationDB you have to generate the c++ files from the flow files but
@@ -57,4 +57,60 @@ It has clearly found external dependencies but don't know how to map them to pro
 modules, we will have to do that.
 
 Just checking for `Marking .... as external` is not enough usually we have to look for other
-signals in the log
+signals in the log, don't worry if you don't find them the build will fail at some point and you
+will be aware of the missing libs.
+
+### Generating the import file
+At this point you need to provide an import file, you can create it manually or it is 2025  you can most probably use codex to cycle through the output of `ninja2bazel` and
+generate an import file with the needed external libraries.
+
+But for the sake of this documentation let's assume that we have the following content for the
+import file:
+
+```
+cc_import(
+        name = "libssl",
+        static_libs = "/usr/local/lib64/libssl.a",
+        hdrs = glob(["/usr/local/include/openssl/*.h"]),
+        system_provided = 1,
+        alias = "@openssl//:ssl",
+)
+
+cc_import(
+        name = "boost_context",
+        static_libs = "/opt/boost_1_78_0/lib/libboost_context.a",
+        hdrs = glob(["/opt/boost_1_78_0/include/boost/context/**.hpp"]),
+        system_provided = 1,
+        alias = "@boost.context//:boost.context",
+)
+```
+
+The format for the import file ressemble the one of a Bazel file with `cc_import`,
+`ninja2bazel` will use mostly the fields `name`, `alias` (if present) and `hdrs` the rest is not
+used for the moment as `ninja2bazel` exclusively relies on headers for the moment to know which
+library is needed (this might change in the future).
+
+If you don't specify an alias `ninja2bazel` expect the library to be available in the `cpp_ext_libs`
+module, it is available for codebases that use 3rd party libraries that you can't bazelify and
+instead want to use a prebuilt version, it is up to you to figure out how to make it available to
+`bazel`.
+Nowdays I tend to prefer to use a library with an `alias` defined and point to a bcr module as it is
+the case for the two libraries above.
+
+### Using the import file
+
+Armed with the new import file it's now time to tell `ninja2bazel` to use it, let's add `--imports my_import_file`:
+```
+parser.py -p "." --top-level-target lib/libfdb_c.dylib --imports my_import_file ~/Work/foundationdb/build_output/build.ninja ~/Work/foundationdb/src/ 
+```
+
+And this time it should work, if you are on a mac you will need a patch to FDB so that you can
+properly find msgpack
+
+For the record I use this command line to generate the `build.ninja` file on a MacOS machine:
+```
+cmake ../src -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DOPENSSL_ROOT_DIR=$(brew --prefix openssl@3) -DBOOST_ROOT=$(brew --prefix boost@1.85)
+```
+
+My `fdb_bazel_support` branch has the import file that should work on MacOS and also a `MODULE` file
+if you want to build things after the bazelfiication to checkt that everything still works
