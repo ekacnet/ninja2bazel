@@ -233,7 +233,7 @@ def _findCPPIncludeForFileSameDir(
 
     found = True
     logging.debug(
-        f"Found {file} in the same directory as the looked file generated {generated}"
+        f"Found {file} in the same directory as the looked file, generated ?: {generated}"
     )
     # We need a way of dealing with path with ..
     full_file_name = resolvePath(full_file_name)
@@ -268,7 +268,18 @@ def _findCPPIncludeForFileSameDir(
             ret.neededGeneratedFiles.add((tmp, "/generated"))
             return False, ret
     else:
-        ret.foundHeaders.add((full_file_name, None))
+        # the relative path of this file within workDir
+        relative_path = full_file_name.replace(workDir, "")
+        # Remove from the relative_path the part that is in the #include
+        relative_path = relative_path.replace(file, "")
+        if relative_path.endswith("/"):
+            relative_path = relative_path[:-1]
+
+        if relative_path == "":
+            relative_path = None
+
+        # Most probably need a fix here
+        ret.foundHeaders.add((full_file_name, relative_path))
 
     cppIncludes = findCPPIncludes(
         full_file_name,
