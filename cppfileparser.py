@@ -233,7 +233,7 @@ def _findCPPIncludeForFileSameDir(
 
     found = True
     logging.debug(
-        f"Found {file} in the same directory as the looked file generated {generated}"
+        f"Found {file} in the same directory as the looked file, generated ?: {generated}"
     )
     # We need a way of dealing with path with ..
     full_file_name = resolvePath(full_file_name)
