@@ -437,11 +437,6 @@ class BazelBuild:
     def genBazelBuildContent(self) -> Dict[str, str]:
         ret: Dict[str, str] = {}
         topContent: Dict[str, Set[str]] = {}
-        if self.prefix.endswith("/"):
-            prefix = self.prefix[:-1]
-        else:
-            prefix = self.prefix
-        helper_include = {f'load("//{prefix}:helpers.bzl", "add_bazel_out_prefix")'}
 
         content: Dict[str, List[str]] = {}
         lastLocation = None
@@ -479,8 +474,6 @@ class BazelBuild:
                 if not top:
                     top = set()
                 top.add(t.getGlobalImport())
-                if not t.location.startswith("@") and t.need_helpers_bzl():
-                    top.update(helper_include)
                 if self.additionalBazelHeaders.get(location):
                     top.update(self.additionalBazelHeaders[location])
                 if len(top) > 0:
@@ -699,14 +692,6 @@ class BazelTarget(BaseBazelTarget):
             deps = f" DEPS[{' '.join([str(d.targetName()) for d in self.deps])}]"
             base += deps
         return base
-
-    def need_helpers_bzl(self):
-        for dir in list(self.includeDirs):
-            # The second element IncludeDir is a flag to indicate if the header is generated
-            # and if so we need to add the bazel-out prefix to the -I option
-            if dir[1]:
-                return True
-        return False
 
     def asBazel(
         self, commonFlags: CompilationFlags, defaultPrefix: str = None
