@@ -30,7 +30,9 @@ class TestBazelGen(unittest.TestCase):
         build.genAdditionalDeps()
 
         sublibs = [
-            t for t in build.bazelTargets if isinstance(t, BazelTarget) and t.name == "_lib_c"
+            t
+            for t in build.bazelTargets
+            if isinstance(t, BazelTarget) and t.name == "_lib_c"
         ]
         self.assertEqual(len(sublibs), 1)
         sublib = sublibs[0]
@@ -90,7 +92,6 @@ class TestBazelGen(unittest.TestCase):
             'load("@com_github_grpc_grpc//bazel:cc_grpc_library.bzl", "cc_grpc_library")',
             src_content,
         )
-        self.assertIn(
+        self.assertNotIn(
             'load("//src:helpers.bzl", "add_bazel_out_prefix")', src_content
         )
-
