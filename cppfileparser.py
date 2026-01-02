@@ -18,8 +18,12 @@ def findAllHeaderFiles(current_dir: str) -> Generator[str, None, None]:
 
 def parseIncludes(includes: str) -> List[str]:
     ret = []
+    # search for something starting with -I or -isystem<space> that didn't start with a space
+    # and then followed by a non space character or a space that is itself not followed by
+    # -I/-isystem or just a dash for other compiler options
     matches = re.findall(
-        r"(?:-I|-isystem ?)([^ ](?:[^ ]|(?: (?!(?:-I)|(?:-isystem)|$)))+)", includes
+        r"(?:-I|-isystem ?)([^ ](?:[^ ]|(?: (?!(?:-I)|(?:-isystem)|(?:-[a-zA-Z])|$)))+)",
+        includes,
     )
     for m in matches:
         if m not in ret:
