@@ -5,11 +5,87 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from build import Build, BuildTarget, Rule
-from bazel import BazelTarget, BazelBuild
-from build import BazelBuildVisitorContext
 from bazel import BazelGenRuleTarget
-from bazel import getObject, bazelcache
+from bazel import BazelTarget, BazelBuild, getObject, bazelcache
+from build import BazelBuildVisitorContext, Build, BuildTarget, Rule
+from ninjabuild import canBePruned
+
+
+class TestBuildTargetBasics(unittest.TestCase):
+    def test_basic_attributes(self):
+        bt = BuildTarget("foo", ("foo", None))
+        self.assertEqual(bt.name, "foo")
+        self.assertEqual(bt.shortName, "foo")
+        self.assertFalse(bt.implicit)
+
+    def test_mark_as_file_and_top_level(self):
+        bt = BuildTarget("foo", ("foo", None))
+        bt.markAsFile()
+        bt.markTopLevel()
+        self.assertTrue(bt.is_a_file)
+        self.assertTrue(bt.topLevel)
+
+    def test_is_only_used_by(self):
+        bt = BuildTarget("foo", ("foo", None))
+        out1 = BuildTarget("out1", ("out1", None))
+        Build([out1], Rule("phony"), [bt], [])
+        self.assertTrue(bt.isOnlyUsedBy(["out1"]))
+
+
+class TestBuildTargetUsage(unittest.TestCase):
+    def test_no_users(self):
+        dep = BuildTarget("dep", ("dep", None))
+        self.assertFalse(dep.isUsedBy(["out"]))
+        self.assertFalse(dep.isOnlyUsedBy(["out"]))
+
+    def test_multiple_users_and_only_used_by(self):
+        dep = BuildTarget("dep", ("dep", None))
+        out1 = BuildTarget("out1", ("out1", None))
+        Build([out1], Rule("cc"), [dep], [])
+        self.assertTrue(dep.isUsedBy(["out1"]))
+        self.assertTrue(dep.isOnlyUsedBy(["out1"]))
+
+        out2 = BuildTarget("out2", ("out2", None))
+        Build([out2], Rule("cc"), [dep], [])
+        self.assertTrue(dep.isUsedBy(["out1"]))
+        self.assertFalse(dep.isOnlyUsedBy(["out1"]))
+
+    def test_deps_are_virtual(self):
+        virt = BuildTarget("virt", ("virt", None))
+        Build([virt], Rule("phony"), [], [])
+        out = BuildTarget("out", ("out", None))
+        Build([out], Rule("cc"), [], [virt])
+        self.assertTrue(out.depsAreVirtual())
+
+        real = BuildTarget("real", ("real", None))
+        Build([real], Rule("cc"), [], [])
+        out2 = BuildTarget("out2", ("out2", None))
+        Build([out2], Rule("cc"), [], [real])
+        self.assertFalse(out2.depsAreVirtual())
+
+    def test_virtuality_for_external_and_files(self):
+        dep = BuildTarget("vdep", ("vdep", None))
+        self.assertTrue(dep.depsAreVirtual())
+        dep.markAsExternal()
+        self.assertFalse(dep.depsAreVirtual())
+        dep.markAsFile()
+        self.assertFalse(dep.depsAreVirtual())
+
+
+class TestBuildTargetVirtualDeps(unittest.TestCase):
+    def test_deps_are_virtual_for_empty_phony_chain(self) -> None:
+        leaf = BuildTarget("leaf", ("leaf", None))
+        Build([leaf], Rule("phony"), [], [])
+
+        top = BuildTarget("top", ("top", None))
+        Build([top], Rule("phony"), [], [leaf])
+
+        self.assertTrue(top.depsAreVirtual())
+        self.assertTrue(canBePruned(top.producedby))  # type: ignore
+
+    def test_deps_are_not_virtual_when_external(self) -> None:
+        ext = BuildTarget("ext", ("ext", None)).markAsExternal()
+        self.assertFalse(ext.depsAreVirtual())
 
 
 class TestBuildUtils(unittest.TestCase):
@@ -188,3 +264,44 @@ class TestBuildFeatures(unittest.TestCase):
         self.assertEqual(dep.name, "libbar.a")
         self.assertIn(dep, bb.bazelTargets)
 
+
+class TestBuildProtoAndLinkHandling(unittest.TestCase):
+    def setUp(self) -> None:
+        bazelcache.clear()
+
+    def _ctx(self) -> BazelBuildVisitorContext:
+        bb = BazelBuild("")
+        ctx = BazelBuildVisitorContext(False, "/src", bb, [], prefix="")
+        ctx.current = BazelTarget("cc_library", "parent", "")
+        return ctx
+
+    def test_handle_protobuf_header_keeps_context(self) -> None:
+        ctx = self._ctx()
+        out = BuildTarget("foo.pb.h", ("foo.pb.h", "proto"))
+        build = Build([out], Rule("CUSTOM_COMMAND"), [], [])
+        build.vars["COMMAND"] = "/usr/bin/bin/protoc something"
+        kept = ctx.current
+        self.assertTrue(build.handleRuleProducedForBazelGen(ctx, out, "cmd"))
+        self.assertIs(ctx.current, kept)
+        self.assertIs(ctx.next_current, kept)
+        self.assertGreater(len(kept.deps), 0)  # type: ignore
+
+    def test_revisit_shared_library_reuses_existing_target(self) -> None:
+        ctx = self._ctx()
+        out = BuildTarget("libfoo.so", ("libfoo.so", None))
+        build = Build([out], Rule("link"), [], [])
+        build.associatedBazelTarget = BazelTarget("cc_shared_library", "libfoo", "")
+        build.associatedBazelTarget.addDep(BazelTarget("cc_library", "libfoo", ""))
+
+        should_skip = build._handleCPPLinkCommand(out, "clang++ libfoo.so", ctx)
+        self.assertFalse(should_skip)
+        self.assertIsInstance(ctx.current, BazelTarget)
+
+    def test_include_handling_pregenerated(self) -> None:
+        ctx = BazelBuildVisitorContext(False, "/root", BazelBuild(""), [], prefix="")
+        ctx.current = BazelTarget("cc_library", "lib", "")
+        el = BuildTarget("obj.o", ("obj.o", None))
+        include_dir = "/work/pregenerated/inc"
+        el.setIncludedFiles([("hdr.h", include_dir)])
+        Build._handleIncludeBazelTarget(el, ctx, "/work/")
+        self.assertIn(("pregenerated/inc", False), ctx.current.includeDirs)

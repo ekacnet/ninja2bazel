@@ -1,6 +1,8 @@
 import unittest
+import pytest
 from pathlib import Path
 from unittest import mock
+from parser import main as parser_main
 
 import ninjabuild
 
@@ -42,7 +44,9 @@ class TestIntegrationBuildParsing(unittest.TestCase):
         )
 
         logging_objects = {
-            i.name: i for i in lib_logging.producedby.getInputs() if i.name.endswith(".o")
+            i.name: i
+            for i in lib_logging.producedby.getInputs()
+            if i.name.endswith(".o")
         }
         self.assertIn("CMakeFiles/Logging.dir/xar/Logging.cpp.o", logging_objects)
         obj_target = logging_objects["CMakeFiles/Logging.dir/xar/Logging.cpp.o"]
@@ -74,6 +78,14 @@ class TestIntegrationBuildParsing(unittest.TestCase):
         self.assertIn('":Logging"', content)
         self.assertIn('":XarHelperLib"', content)
 
+    def test_visiting_graph_generates_bazel_targets_from_main_raises(self):
+        with pytest.raises(SystemExit) as excinfo:
+            parser_main()
 
-if __name__ == "__main__":
-    unittest.main()
+        assert excinfo.value.code != 0
+
+    def test_visiting_graph_generates_bazel_targets_from_main(self):
+        with mock.patch.object(
+            ninjabuild.NinjaParser, "executeGenerator", return_value=None
+        ):
+            parser_main(["test/data/build.ninja", str(self.data_dir)])

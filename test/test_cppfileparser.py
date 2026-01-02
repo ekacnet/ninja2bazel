@@ -5,13 +5,31 @@ from pathlib import Path
 from bazel import BazelCCImport
 from build import BuildTarget
 from cppfileparser import (
-    findAllHeaderFiles,
-    parseIncludes,
-    _findCPPIncludeForFileSameDir,
     _findCPPIncludeForFile,
+    _findCPPIncludeForFileSameDir,
+    cache as cpp_cache,
+    findAllHeaderFiles,
     findCPPIncludes,
+    parseIncludes,
+    seen as cpp_seen,
 )
 from helpers import resolvePath
+
+
+class TestParseIncludes(unittest.TestCase):
+    def test_single_include(self):
+        self.assertEqual(parseIncludes("-I/path"), ["/path"])
+
+    def test_multiple_includes(self):
+        inc = "-I/path/one -I/path/two"
+        self.assertEqual(parseIncludes(inc), ["/path/one", "/path/two"])
+
+    def test_with_spaces(self):
+        inc = "-I/with\\ space -I/with\\tspace"
+        self.assertEqual(parseIncludes(inc), ["/with\\ space", "/with\\tspace"])
+
+    def test_no_includes(self):
+        self.assertEqual(parseIncludes(""), [])
 
 
 class TestCPPFileParser(unittest.TestCase):
@@ -110,3 +128,81 @@ class TestCPPFileParser(unittest.TestCase):
             )
             self.assertIn("missing.h", result.notFoundHeaders)
 
+
+class TestCPPGeneratedHeaders(unittest.TestCase):
+    def tearDown(self) -> None:
+        cpp_cache.clear()
+        cpp_seen.clear()
+
+    def test_generated_header_paths_are_rewritten(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            gen_dir = Path(td)
+            main = gen_dir / "gen.h"
+            main.write_text('#include "nested.h"\n')
+            nested = gen_dir / "nested.h"
+            nested.write_text("")
+
+            generated_files = {
+                "gen.h": (None, str(gen_dir)),
+                "nested.h": (None, str(gen_dir)),
+            }
+
+            found, includes = _findCPPIncludeForFile(
+                "gen.h",
+                ["/generated"],
+                str(gen_dir),
+                [],
+                [],
+                generated_files,
+                str(gen_dir),
+                str(gen_dir),
+                str(gen_dir),
+            )
+            self.assertTrue(found)
+            self.assertIn(("gen.h", "/generated"), includes.neededGeneratedFiles)
+            self.assertIn(("nested.h", "/generated"), includes.neededGeneratedFiles)
+
+            result = findCPPIncludes(
+                str(main),
+                ["/generated"],
+                [],
+                [],
+                generated_files,
+                True,
+                str(gen_dir),
+                str(gen_dir),
+                str(gen_dir),
+            )
+            self.assertIn("nested.h", {h[0] for h in result.neededGeneratedFiles})
+
+    def test_not_found_filters_pb_headers_and_uses_cache(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            file = root / "main.cpp"
+            file.write_text('#include "missing.pb.h"\n#include "other_missing.h"\n')
+
+            first = findCPPIncludes(
+                str(file),
+                ["inc"],
+                [],
+                [],
+                {},
+                False,
+                None,
+                td,
+                td,
+            )
+            self.assertNotIn("missing.pb.h", first.notFoundHeaders)
+            self.assertIn("other_missing.h", first.notFoundHeaders)
+            second = findCPPIncludes(
+                str(file),
+                [],
+                [],
+                [],
+                {},
+                False,
+                None,
+                td,
+                td,
+            )
+            self.assertIs(first, second)
