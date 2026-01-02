@@ -1,0 +1,241 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional
+
+import starlark as sl  # pip install starlark-pyo3
+
+
+@dataclass
+class RuleCall:
+    rule: str
+    attrs: Dict[str, str|List[str]]
+    positional: List[Any]
+    deps: List[RuleCall] = field(default_factory=list)
+    usedBy: List[RuleCall] = field(default_factory=list)
+    hasHiddenSymbols: bool = False
+    location: str = ""
+
+
+class BuildRecorder:
+    """
+    Collects top-level rule calls like cc_library(name=..., deps=...).
+    """
+
+    def __init__(self) -> None:
+        self.calls: List[RuleCall] = []
+
+    def rule_fn(self, rule_name: str):
+        # This callable will be invoked from Starlark.
+        def _impl(*args, **kwargs):
+            dc = dict(kwargs)
+            # FIXME filter  out the empty args and put 
+            # list attrs to a separate from the str attr,
+            # put name separately too
+            self.calls.append(
+                RuleCall(rule=rule_name, attrs=dc, positional=list(args))
+            )
+            # BUILD rule calls return None in Bazel; mimic that.
+            return None
+
+        return _impl
+
+
+# --- Optional helpers: stub out common BUILD functions ------------------------
+
+
+def glob(include, exclude=None, **kwargs):
+    # Keep it symbolic unless you want to implement filesystem matching.
+    return {
+        "__fn__": "glob",
+        "include": include,
+        "exclude": exclude or [],
+        "kwargs": kwargs,
+    }
+
+
+def select(mapping, **kwargs):
+    # Keep it symbolic; real resolution depends on Bazel configuration.
+    return {"__fn__": "select", "mapping": mapping, "kwargs": kwargs}
+
+
+def parse_build_with_starlark_pyo3(
+    build_path: str,
+    *,
+    rule_names: Optional[List[str]] = None,
+) -> List[RuleCall]:
+    """
+    Parse+evaluate a BUILD file, recording calls to known rule functions.
+    """
+    if rule_names is None:
+        # Add whatever rules you care about.
+        rule_names = [
+            "cc_library",
+            "cc_binary",
+            "cc_test",
+            "py_library",
+            "py_binary",
+            "py_test",
+            "java_library",
+            "filegroup",
+            "genrule",
+            "alias",
+        ]
+
+    source = Path(build_path).read_text(encoding="utf-8")
+
+    # Dialect: standard Starlark; BUILD files usually need top-level statements.
+    dialect = sl.Dialect.standard()
+    dialect.enable_top_level_stmt = True  # supported knob (write-only in docs) :contentReference[oaicite:1]{index=1}
+
+    ast:sl.AstModule = sl.parse(
+        str(build_path), source, dialect=dialect
+    )  # :contentReference[oaicite:2]{index=2}
+    recorder = BuildRecorder()
+    module = sl.Module()
+    glb = sl.Globals.standard()
+
+    # Provide rule functions that record what they were called with.
+    for r in rule_names:
+        module.add_callable(
+            r, recorder.rule_fn(r)
+        )  # :contentReference[oaicite:3]{index=3}
+
+    # Provide common BUILD helpers (symbolic)
+    module.add_callable("glob", glob)
+    module.add_callable("select", select)
+
+    # Evaluate the BUILD file; rule calls will be recorded.
+    # (If your BUILD uses load(), see note below.)
+    sl.eval(module, ast, glb)  # :contentReference[oaicite:4]{index=4}
+
+    return recorder.calls
+
+
+def grafify_rules(raw_rules: List[RuleCall]) -> List[RuleCall]:
+    # For the moment assume that all the rules are in the same file or external
+    ret: List[RuleCall] = []
+    missing: Dict[str, List[RuleCall]] = dict()
+    all_rules: Dict[str, RuleCall] = dict()
+    for c in raw_rules:
+        name = c.attrs.get("name")
+        assert name is not None
+        assert isinstance(name, str)
+        all_rules[name] = c
+        if name in missing:
+            for r in missing[name]:
+                r.deps.append(c)
+                c.usedBy.append(r)
+            del missing[name]
+        deps = c.attrs.get("deps")
+        remaining_deps = []
+        if deps is not None:
+            for d in deps:
+                if d.startswith(':'):
+                    dep_name = d[1:]
+                elif d.startswith('@'):
+                    remaining_deps.append(d)
+                    continue
+                else:
+                    # FIXME
+                    raise Exception("no deps from other file supported yet")
+                if dep_name in all_rules:
+                    c.deps.append(all_rules[dep_name])
+                    all_rules[dep_name].usedBy.append(c)
+                else:
+                    if missing[dep_name] is None:
+                        missing[dep_name] = []
+                    missing[dep_name].append(c)
+        if len(remaining_deps) > 0:
+            c.attrs["deps"] = remaining_deps
+        elif deps is not None:
+            del c.attrs["deps"]
+        copts: List[str] = []
+        copts.extend( c.attrs.get("copts") or [] )
+        copts.extend( c.attrs.get("cxxopts") or [] )
+        if "-fvisibility=hidden" in copts:
+            c.hasHiddenSymbols = True
+
+    for r in all_rules.values():
+        if len(r.usedBy) == 0:
+            ret.append(r)
+
+    return ret
+
+def print_rule(e: RuleCall, depth: int = 0):
+    print(f"{'  ' * depth}{e.rule} name={e.attrs.get('name')!r} attrs={list(e.attrs.keys())} hasHiddenSymbols={e.hasHiddenSymbols}, external_deps={e.attrs.get("deps")}")
+    for d in e.deps:
+        print_rule(d, depth + 2)
+
+def debug_graph(graph: List[RuleCall]):
+    for e in graph:
+        print_rule(e)
+
+def print_bazel(rule: RuleCall) -> None:
+    print(f"{rule.rule}(")
+    print(f'     name = "{rule.attrs.get("name")}",')
+    for attr,val in rule.attrs.items():
+        if attr != "name":
+            if isinstance(val, list):
+                if len(val) == 0:
+                    continue
+                print(f'     {attr} = [')
+                for v in val:
+                    print(f'        "{v}",')
+
+                print('     ],')
+            else:
+                print(f'     {attr} = "{val}",')
+
+    print(")")
+    print(f"{rule.rule}(")
+    print(f'     name = "{rule.attrs.get("name")}_hdrs",')
+    for attr,val in rule.attrs.items():
+        if attr in ["visibility", "hdrs"]:
+            if isinstance(val, list):
+                if len(val) == 0:
+                    continue
+                print(f'     {attr} = [')
+                for v in val:
+                    print(f'        "{v}",')
+
+                print('     ],')
+            else:
+                print(f'     {attr} = "{val}",')
+
+    print(")")
+
+def visit_rule(e: RuleCall, shouldCollapse: bool, callback: Callable[[RuleCall], None]):
+    # Here is the logic,
+    # When we find a rule that has hidden symbols we start collecting all the srcs, hdrs, copts, ... from the
+    # deps that also have hidden symbols
+    hasHidden = e.hasHiddenSymbols
+    # Let's copy external deps
+    new_deps: List[RuleCall] = []
+    for d in e.deps:
+        visit_rule(d, (e.rule == "cc_library" or hasHidden) and d.hasHiddenSymbols, callback)
+        if (e.rule == "cc_library" or hasHidden) and d.hasHiddenSymbols:
+            for attr in d.attrs:
+                if attr in ["name", "visibility"]:
+                    continue
+                current_attr = e.attrs.get(attr, [])
+                assert isinstance(current_attr, list)
+                current_attr.extend(d.attrs.get(attr, []))
+        else:
+            new_deps.append(d)
+    e.deps = new_deps
+    if not shouldCollapse:
+        callback(e)
+
+
+
+if __name__ == "__main__":
+    calls = parse_build_with_starlark_pyo3("BUILD.bazel")
+    graph = grafify_rules(calls)
+    #debug_graph(graph)
+    # iterate over the graph find the top rule that has hidden symbols and merge deps with hidden symbols into it
+    for e in graph:
+        visit_rule(e, False, lambda e: print_bazel(e))
+    #debug_graph(graph)
