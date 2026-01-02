@@ -32,7 +32,7 @@ def parse_manually_generated(manually_generated: List[str]) -> Dict[str, str]:
 BUILD_CUSTOMIZATION_DIRECTORY = "bazel/cpp"
 
 
-def main():
+def main(argv=None):
     logging.basicConfig(
         level=logging.INFO,
         format="%(name)s - %(levelname)s - %(message)s - Line: %(lineno)d",
@@ -68,7 +68,7 @@ def main():
         help="The name of top level target(s) to be generated, if not specified all targets will be generated",
     )
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     filename = args.filename
     rootdir = args.rootdir
