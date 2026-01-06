@@ -5,22 +5,12 @@ from dataclasses import dataclass
 from enum import Enum
 from functools import total_ordering
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
-from helpers import resolvePath
-from bazel import (
-    BaseBazelTarget,
-    BazelBuild,
-    BazelCCImport,
-    BazelCCProtoLibrary,
-    BazelExternalDep,
-    BazelGenRuleTarget,
-    BazelGRPCCCProtoLibrary,
-    BazelProtoLibrary,
-    BazelTarget,
-    ExportedFile,
-    ShBinaryBazelTarget,
-    getObject,
-)
 
+from bazel import (BaseBazelTarget, BazelBuild, BazelCCImport,
+                   BazelCCProtoLibrary, BazelExternalDep, BazelGenRuleTarget,
+                   BazelGRPCCCProtoLibrary, BazelProtoLibrary, BazelTarget,
+                   ExportedFile, ShBinaryBazelTarget, getObject)
+from helpers import resolvePath
 from visitor import VisitorContext
 
 VisitorType = Callable[["BuildTarget", "VisitorContext", bool], bool]
@@ -34,18 +24,8 @@ def genShBinaryScript(rootdir: str, command: str) -> str:
 echo -ne '#!/bin/bash \\n\\
 #set -x\\n\\
 cur=$$(pwd)\\n\\
-for arg in "$$@"; do\\n\\
-  if [[ "$$arg" =~ bazel-out.* ]]; then\\n\\
-    new_value="$$cur/$${{arg}}"\\n\\
-  elif [[ -e $${{cur}}/$${{arg}} ]]; then\\n\\
-    new_value=$${{cur}}/$${{arg}}\\n\\
-  else\\n\\
-    new_value=$${{arg}}\\n\\
-  fi\\n\\
-  modified_args+=("$$new_value")\\n\\
-done\\n\\
 export PYTHONPATH={rootdir}:$$PYTHONPATH\\n\\
-{command} $${{modified_args[@]}} \\n\\
+{command} $${{@}} \\n\\
 ' > $@
 chmod a+x $@
 """
@@ -882,9 +862,6 @@ class Build:
 
             arr: List[str] = list(filter(lambda x: x != "", cmdCopy.split(" ")))
 
-            for e in arr[1:]:
-                if e in self._inputs:
-                    genTarget.addSrc(self._genExportedFile(e, genTarget.location))
             outDirs = set()
             outFiles = set()
             workDir = self.vars.get("cmake_ninja_workdir", "")
@@ -972,14 +949,41 @@ class Build:
                     if os.path.exists(f"{ctx.rootdir}/{arg}"):
                         countInput += 1
                     else:
+                        if arg.startswith(workDir):
+                            logging.info(
+                                f"Assuming {arg} can be replaced by {arg.replace(workDir, '')} as it starts with workDir"
+                            )
+                            alteredArgs.append(arg.replace(workDir, ""))
+                            continue
                         logging.info(f"{arg} not found in the output hope it's ok")
                     alteredArgs.append(arg)
-            # toolBuildTarget is a genrule() rule for building the tool that will be used by the shell
-            # script that is used for producing the output of the custom command
-            toolBuildTarget = getObject(
-                BazelGenRuleTarget, f"{name}_cmd_build", location
+
+            regex = r"^.*/bin/python3(?:\.\d+)?$"
+            if re.match(regex, command):
+                command = "python3"
+
+            script = []
+
+            if command.endswith(".py"):
+                # Replace command by python3 and pass the script as first argument
+                script.append(f"$(location {command})")
+                command = f"python3"
+
+            # In theory it would be a good idea to not have to genbuild the script that will be used
+            # by the sh_binary
+            # toolBuildTarget is a genrule() rule for building the wrapper around the command that
+            # will be used by the shell that we call in genrule target to generate the files
+            sanitized_command = (
+                command.replace(".", "_")
+                .replace("/", "_")
+                .replace(" ", "_")
+                .replace("-", "_")
             )
-            toolBuildTarget.addOut(f"{name}_cmd.sh")
+            toolBuildTarget = getObject(
+                BazelGenRuleTarget, f"gen_{sanitized_command}_wrapper_script", location
+            )
+            toolBuildTarget.cmd = genShBinaryScript(ctx.rootdir, command)
+            toolBuildTarget.addOut(f"{sanitized_command}_wrapper.sh")
             # Add the sha1 of all inputs to force rebuild if intput file changes
 
             if (countInput + countRewrote + countOptions) != len(arr[1:]):
@@ -987,21 +991,20 @@ class Build:
                     f"Need to write the function for dealing with non fully rewritten arguments for {el.name}"
                     f", {countInput}, {countRewrote}, {countOptions} {len(arr[1:])}"
                 )
-            if command.endswith(".py"):
-                command = f"python3 {command}"
-
-            toolBuildTarget.cmd = genShBinaryScript(ctx.rootdir, command)
             # Make a sh_binary target out of iter
-            shBinary = ShBinaryBazelTarget(f"{name}_cmd", location)
+            shBinary = ShBinaryBazelTarget(f"{sanitized_command}_cmd", location)
             shBinary.addSrc(toolBuildTarget)
             genTarget.cmd = (
-                f"./$(location {shBinary.targetName()})" + " " + " ".join(alteredArgs)
+                f"./$(location {shBinary.targetName()})"
+                + " "
+                + " ".join(script + alteredArgs)
             )
             genTarget.addTool(shBinary)
 
             # Not sure that it's actually needed
+            # FIXME do not do that for the genrule that create the script that runs generator
             for e in allInputs:
-                toolBuildTarget.addSrc(self._genExportedFile(e, genTarget.location))
+                genTarget.addSrc(self._genExportedFile(e, genTarget.location))
             ctx.bazelbuild.bazelTargets.add(toolBuildTarget)
             ctx.bazelbuild.bazelTargets.add(shBinary)
 
