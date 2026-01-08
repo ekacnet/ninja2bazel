@@ -286,8 +286,7 @@ def _findCPPIncludeForFileSameDir(
         if relative_path == "":
             relative_path = None
 
-        # Most probably need a fix here
-        ret.foundHeaders.add((full_file_name, relative_path))
+        ret.foundHeaders.add((full_file_name, None))
 
     cppIncludes = findCPPIncludes(
         full_file_name,
