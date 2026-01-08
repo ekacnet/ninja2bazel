@@ -10,10 +10,8 @@ import time
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 from bazel import BazelBuild, BazelCCImport
-from build import (Build, BuildTarget, Rule, TargetType,
-                   TopLevelGroupingStrategy)
-from build_visitor import (BazelBuildVisitorContext, BuildVisitor,
-                           PrintVisitorContext)
+from build import Build, BuildTarget, Rule, TargetType, TopLevelGroupingStrategy
+from build_visitor import BazelBuildVisitorContext, BuildVisitor, PrintVisitorContext
 from cppfileparser import CPPIncludes, findCPPIncludes, parseIncludes
 from helpers import resolvePath
 from protoparser import findProtoIncludes
@@ -697,7 +695,14 @@ class NinjaParser:
             # TODO revisit if we need to extend the inputs o: the dependencies of the build
             # dependencies might have a side effect that is not desirable for generated files
             for g in generatedOutputsNeeded:
-                build.addInput(g)
+                if (
+                    build.rulename.name == "CUSTOM_COMMAND"
+                    and "bin/protoc" not in self.vars.get("COMMAND", "")
+                ):
+                    continue
+                else:
+                    logging.debug(f"Adding generated input {g} to build {build}")
+                    build.addInput(g)
 
     def _finalizeHeadersForNonGeneratedFileForBuild(
         self, elem: BuildTarget, build: Build, current_dir: str, workDir: str
