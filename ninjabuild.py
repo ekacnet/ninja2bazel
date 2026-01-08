@@ -734,6 +734,11 @@ class NinjaParser:
             else:
                 return generatedOutputsNeeded
             includes_dirs = parseIncludes(build.vars.get("INCLUDES", ""))
+            if len(includes_dirs) == 0 and build.rulename.name == "CUSTOM_COMMAND":
+                logging.info(
+                    f"Skipping looking for headers in file for a custom command build with no includes {build}"
+                )
+                return generatedOutputsNeeded
             logging.debug(
                 f"Looking for header in {filename} with includes {includes_dirs} in {build}"
             )
