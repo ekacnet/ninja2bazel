@@ -585,6 +585,7 @@ class NinjaParser:
                 tempTopFolder,
                 workDir,
                 srcDir,
+                list(self.remapPaths.keys()),
             )
             if len(cppIncludes.notFoundHeaders) > 0 and includes != "":
                 logging.warning(
@@ -732,6 +733,7 @@ class NinjaParser:
                 tempDirName,
                 workDir,
                 srcDir,
+                list(self.remapPaths.keys()),
             )
             if len(cppIncludes.notFoundHeaders) > 0:
                 for h in cppIncludes.notFoundHeaders:
@@ -779,10 +781,11 @@ class NinjaParser:
                     # Need to add both <pregenerated> and pregenerated so that the first one get
                     # removed when creating the expored file and then the second so that we can find the header
                     ef = Build._genExportedFile(
-                        f"<pregenerated>/pregenerated/{h2[0].replace(workDir, '')}",
-                        "<pregenerated>",
-                        None,
-                        True,
+                        filename=f"<pregenerated>/pregenerated/{h2[0].replace(workDir, '')}",
+                        locationCaller="<pregenerated>",
+                        ctx=None,
+                        fileLocation=None,
+                        ispregenerated=True,
                     )
                     elem.addDeps(ef)
                     logging.info(

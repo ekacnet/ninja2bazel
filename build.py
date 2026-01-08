@@ -446,17 +446,19 @@ class Build:
         cls,
         filename: str,
         locationCaller: str,
+        ctx: BazelBuildVisitorContext,
         fileLocation: Optional[str] = None,
         ispregenerated: bool = False,
     ) -> ExportedFile:
+        # static file
         ef = cls.staticFiles.get(filename)
         logging.debug(
-            f"Generating ExportedFile for {filename} is pregenerated = {ispregenerated} at {locationCaller} {ef}"
+            f"Generating ExportedFile for {filename} is pregenerated = {ispregenerated} at {locationCaller} exported file:  {ef}"
         )
+        assert fileLocation is None
         if not ef:
             keepPrefix = False
             if ispregenerated:
-                assert fileLocation is None
                 fileLocation = locationCaller
             elif fileLocation is None:
                 fileLocation = (
@@ -466,10 +468,19 @@ class Build:
                 )
             else:
                 keepPrefix = True
-            logging.debug(f"Checking if {fileLocation} needs replacement")
             for k, v in cls.remapPaths.items():
                 if fileLocation.startswith(k):
                     fileLocation = fileLocation.replace(k, v)
+                    logging.info(f"Remapping location from {k} to {v}")
+                    if filename.endswith(".h"):
+                        ctx.current.addIncludeDir((v, False))
+                elif fileLocation == "." and k == filename:
+                    fileLocation = v
+                    logging.info(f"Remapping location for {filename} to {v}")
+                    if filename.endswith(".h"):
+                        logging.info(f"Adding {v} to include dirs")
+                        ctx.current.addIncludeDir((v, False))
+
             if fileLocation == "":
                 fileLocation = locationCaller
             ef = ExportedFile(
@@ -479,6 +490,12 @@ class Build:
                 fileLocation,
             )
             cls.staticFiles[filename] = ef
+        else:
+            for k, v in cls.remapPaths.items():
+                if ef.location.startswith(v):
+                    if filename.endswith(".h"):
+                        logging.info(f"Adding {ef.location} to include dirs")
+                        ctx.current.addIncludeDir((ef.location, False))
         return ef
 
     @classmethod
@@ -540,7 +557,9 @@ class Build:
                     )
                     protoDep.addSrc(
                         cls._genExportedFile(
-                            dep.name.replace(ctx.rootdir, ""), ctx.current.location
+                            filename=dep.name.replace(ctx.rootdir, ""),
+                            locationCaller=ctx.current.location,
+                            ctx=ctx,
                         )
                     )
                     ctx.bazelbuild.bazelTargets.add(protoDep)
@@ -623,7 +642,11 @@ class Build:
             logging.info(
                 f"About to add proto {el.name} with includes {el.includes} to {ctx.current.name} "
             )
-            ctx.current.addSrc(cls._genExportedFile(el.shortName, ctx.current.location))
+            ctx.current.addSrc(
+                cls._genExportedFile(
+                    filename=el.shortName, locationCaller=ctx.current.location, ctx=ctx
+                )
+            )
 
             for dep in el.depends:
                 # strip the @ marker
@@ -642,7 +665,9 @@ class Build:
                     )
                     protoDep.addSrc(
                         cls._genExportedFile(
-                            dep.name.replace(ctx.rootdir, ""), ctx.current.location
+                            filename=dep.name.replace(ctx.rootdir, ""),
+                            locationCaller=ctx.current.location,
+                            ctx=ctx,
                         )
                     )
                     ctx.bazelbuild.bazelTargets.add(protoDep)
@@ -661,7 +686,11 @@ class Build:
                 name = f"{el.shortName}"
 
             exported = cls._genExportedFile(
-                name, ctx.current.location, None, pregenerated
+                filename=name,
+                locationCaller=ctx.current.location,
+                ctx=ctx,
+                fileLocation=None,
+                ispregenerated=pregenerated,
             )
             ctx.bazelbuild.bazelTargets.add(exported)
             ctx.current.addSrc(exported)
@@ -724,12 +753,22 @@ class Build:
                 # logging.info(f"Adding header {i} using include {includeDir} from {el.name} {generated} to {ctx.current.name}")
                 if includeDir is not None:
                     if pregenerated:
-                        ef = cls._genExportedFile(i, ctx.current.location, None, True)
+                        ef = cls._genExportedFile(
+                            filename=i,
+                            locationCaller=ctx.current.location,
+                            ctx=ctx,
+                            fileLocation=None,
+                            ispregenerated=True,
+                        )
                     else:
-                        ef = cls._genExportedFile(i, ctx.current.location)
+                        ef = cls._genExportedFile(
+                            filename=i, locationCaller=ctx.current.location, ctx=ctx
+                        )
                     ctx.current.addHdr(ef, (includeDir, generated))
                 else:
-                    ef = cls._genExportedFile(i, ctx.current.location)
+                    ef = cls._genExportedFile(
+                        filename=i, locationCaller=ctx.current.location, ctx=ctx
+                    )
                     ctx.bazelbuild.bazelTargets.add(ef)
                     ctx.current.addHdr(ef)
             else:
@@ -1004,7 +1043,11 @@ class Build:
             # Not sure that it's actually needed
             # FIXME do not do that for the genrule that create the script that runs generator
             for e in allInputs:
-                genTarget.addSrc(self._genExportedFile(e, genTarget.location))
+                genTarget.addSrc(
+                    self._genExportedFile(
+                        filename=e, locationCaller=genTarget.location, ctx=ctx
+                    )
+                )
             ctx.bazelbuild.bazelTargets.add(toolBuildTarget)
             ctx.bazelbuild.bazelTargets.add(shBinary)
 
