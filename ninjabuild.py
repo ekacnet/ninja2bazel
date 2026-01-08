@@ -10,8 +10,10 @@ import time
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 from bazel import BazelBuild, BazelCCImport
-from build import Build, BuildTarget, Rule, TargetType, TopLevelGroupingStrategy
-from build_visitor import BazelBuildVisitorContext, BuildVisitor, PrintVisitorContext
+from build import (Build, BuildTarget, Rule, TargetType,
+                   TopLevelGroupingStrategy)
+from build_visitor import (BazelBuildVisitorContext, BuildVisitor,
+                           PrintVisitorContext)
 from cppfileparser import CPPIncludes, findCPPIncludes, parseIncludes
 from helpers import resolvePath
 from protoparser import findProtoIncludes
@@ -339,10 +341,24 @@ class NinjaParser:
                 except Exception as _:
                     logging.error("Couldn't find a target for {d}")
                     raise
-                if v.name.startswith(self.codeRootDir):
+                if v.name.endswith(".cmake"):
+                    vprime = v.name[:-6]
+                    if vprime.startswith(self.codeRootDir):
+                        vprime = vprime[len(self.codeRootDir) :]
+                    if vprime in self.manually_generated:
+                        m = self.manually_generated[vprime]
+                        v = self._getBuildTarget(m)
+                        logging.info(
+                            f"Marking {vprime} as a manually generated target by {v}"
+                        )
+                        v.markAsManual()
+                    else:
+                        quiet = True
+                        v.markAsExternal(quiet)
+                elif v.name.startswith(self.codeRootDir):
                     logging.info(f"Marking {v} as an known dependency")
                     v.markAsFile()
-                elif v.name.endswith("CMakeLists.txt") or v.name.endswith(".cmake"):
+                elif v.name.endswith("CMakeLists.txt"):
                     quiet = True
                     v.markAsExternal(quiet)
                 elif d.startswith("/"):
