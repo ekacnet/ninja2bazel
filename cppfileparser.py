@@ -276,6 +276,16 @@ def _findCPPIncludeForFileSameDir(
             ret.neededGeneratedFiles.add((tmp, "/generated"))
             return False, ret
     else:
+        # the relative path of this file within workDir
+        relative_path = full_file_name.replace(workDir, "")
+        # Remove from the relative_path the part that is in the #include
+        relative_path = relative_path.replace(file, "")
+        if relative_path.endswith("/"):
+            relative_path = relative_path[:-1]
+
+        if relative_path == "":
+            relative_path = None
+
         ret.foundHeaders.add((full_file_name, None))
 
     cppIncludes = findCPPIncludes(
