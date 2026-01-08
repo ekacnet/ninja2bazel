@@ -527,6 +527,9 @@ class Build:
             return
 
         for dep in el.depends:
+            if isinstance(ctx.current, BazelGenRuleTarget):
+                # Skip deps of an element when the current target is a genrule target
+                continue
             # logging.debug(f"Visiting dep {dep}")
             if ctx.current is None:
                 continue
@@ -584,8 +587,13 @@ class Build:
                     ctx.current.addDep(any_cc_proto)
                     ctx.bazelbuild.bazelTargets.add(any_cc_proto)
                 else:
-                    ctx.current.addDep(imp)
-                    cls._addAllCCimportDeps(imp, ctx)
+                    if isinstance(ctx.current, BazelGenRuleTarget):
+                        logging.info(
+                            f"Trying to add dep {imp} as a dependecy of {ctx.current.name} but it is ignored as gen_rule cannot have dependencies, hopefully analyzing the generated file will also yield the same dependency that will be properly added to the final target {el}"
+                        )
+                    else:
+                        ctx.current.addDep(imp)
+                        cls._addAllCCimportDeps(imp, ctx)
             else:
                 logging.warn(f"Visiting {dep} but don't know what to do for {el}")
 
@@ -697,6 +705,8 @@ class Build:
 
             if el.includes is None:
                 return
+            if isinstance(ctx.current, BazelGenRuleTarget):
+                return
             logging.info(
                 f"Handling includes for {el.name} with includes {el.includes} in {ctx.current.name}"
             )
@@ -708,6 +718,12 @@ class Build:
     def _handleIncludeBazelTarget(
         cls, el: "BuildTarget", ctx: BazelBuildVisitorContext, workDir: Union[str, None]
     ):
+        if isinstance(ctx.current, BazelGenRuleTarget):
+            # Gen rule cannot have include dirs
+            logging.info(
+                f"Skipping adding include dirs to {ctx.current.name} because it is a gen_rule"
+            )
+            return
         for i, d in el.includes:
             generated = False
             pregenerated = False
