@@ -1,11 +1,11 @@
 import logging
 import os
 import re
+from copy import deepcopy
 from functools import cache, cmp_to_key, total_ordering
 from itertools import combinations
-from typing import Any, Callable, Dict, List, Optional, Set, Type, TypeVar, Union
-from copy import deepcopy
-
+from typing import (Any, Callable, Dict, List, Optional, Set, Type, TypeVar,
+                    Union)
 
 PREGENERATED_LOCATION = "<pregenerated>"
 
@@ -565,6 +565,7 @@ class BaseBazelTarget(object):
         raise NotImplementedError
 
     def addDep(self, target: Union["BaseBazelTarget", BazelCCImport]):
+        logging.error(f"Trying to add dep {target} to {self.name}")
         raise NotImplementedError
 
     @cache
@@ -826,6 +827,11 @@ class BazelGenRuleTarget(BaseBazelTarget):
 
     def addTool(self, target: BaseBazelTarget):
         self.tools.add(target)
+
+    def addDep(self, target: Union["BaseBazelTarget", BazelCCImport]):
+        logging.warn(
+            f"Trying to add dep {target} to {self.name} but genrule don't have deps"
+        )
 
     def asBazel(
         self, _flags: CompilationFlags, defaultPrefix: str = None
