@@ -1121,7 +1121,9 @@ class Build:
         )
         # I'm questioning the logic behind that as of July 2025 as there are a lot of things that
         # can't be added to a BazelGenRuleTarget
-        # ctx.current = genTarget
+        # Note it's actually really needed in some cases because otherwise we try to add src to the
+        # wrong target (ie. the target that use this generated file)
+        ctx.current = genTarget
         return True
 
     @classmethod
