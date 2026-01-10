@@ -123,8 +123,10 @@ class TestBazelGen(unittest.TestCase):
         self.assertIn(sublib, target.deps)
         self.assertNotIn(c_src, target.srcs)
         self.assertIn(cpp_src, target.srcs)
-        self.assertIn('"-std=c11"', sublib.copts)
+        self.assertIn('"-std=c11"', sublib.conlyopts)
         self.assertNotIn('"-std=c11"', target.copts)
+        self.assertNotIn('"-std=c11"', target.conlyopts)
+        self.assertIn('"-O2"', sublib.copts)
 
     def test_gen_bazel_build_content_includes_various_targets(self) -> None:
         build = BazelBuild("src/")
