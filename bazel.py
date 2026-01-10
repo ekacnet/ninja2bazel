@@ -4,8 +4,19 @@ import re
 from copy import deepcopy
 from functools import cache, cmp_to_key, total_ordering
 from itertools import combinations
-from typing import (Any, Callable, Dict, List, Optional, Set, Type, TypeVar,
-                    Union)
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Iterable,
+    List,
+    Optional,
+    Set,
+    Tuple,
+    Type,
+    TypeVar,
+    Union,
+)
 
 PREGENERATED_LOCATION = "<pregenerated>"
 
@@ -14,6 +25,29 @@ BazelTargetStrings = Dict[str, List[str]]
 T = TypeVar("T")
 
 CompilationFlags = Dict[str, Union[str, Set[str]]]
+BASIC_C_STD_RE = re.compile(r"^-std=(?:c|gnu)[0-9A-Za-z]+$")
+BASIC_CXX_STD_RE = re.compile(r"^-std=(?:c\+\+|gnu\+\+)[0-9A-Za-z]+$")
+
+
+def _normalize_flag(flag: str) -> str:
+    return flag.strip('"')
+
+
+def _split_language_opts(
+    opts: Iterable[str],
+) -> Tuple[Set[str], Set[str], Set[str]]:
+    conlyopts: Set[str] = set()
+    cxxopts: Set[str] = set()
+    copts: Set[str] = set()
+    for opt in opts:
+        normalized = _normalize_flag(opt)
+        if BASIC_C_STD_RE.match(normalized):
+            conlyopts.add(opt)
+        elif BASIC_CXX_STD_RE.match(normalized) or normalized.startswith("-stdlib="):
+            cxxopts.add(opt)
+        else:
+            copts.add(opt)
+    return conlyopts, cxxopts, copts
 
 
 def _getPrefix(
@@ -416,19 +450,23 @@ class BazelBuild:
                 if not (f.name.endswith(".c") or f.name.endswith(".C"))
             ]
             if len(c_sources) and len(nonc_sources):
+                conlyopts, cxxopts, copts = _split_language_opts(t.copts)
+                t.copts = copts
+                t.conlyopts.update(conlyopts)
+                t.cxxopts.update(cxxopts)
                 sublib = BazelTarget(t.type, f"_{t.name}_c", t.location)
                 sublib.includeDirs = deepcopy(t.includeDirs)
                 sublib.srcs = c_sources
                 sublib.addPrefixIfRequired = t.addPrefixIfRequired
-                sublib.copts = [
-                    o for o in t.copts if not re.match(r'^"-std=(?:c|gnu)\+\+', o)
-                ]
+                sublib.copts = set(t.copts)
+                sublib.conlyopts = set(t.conlyopts)
+                sublib.cxxopts = set()
                 sublib.defines = t.defines
                 sublib.deps = t.deps
                 sublib.hdrs = t.hdrs
                 self.bazelTargets.add(sublib)
 
-                t.copts = [o for o in t.copts if not re.match(r'^"-std=(?:c|gnu)\d', o)]
+                t.conlyopts = set()
                 t.srcs = nonc_sources
                 t.hdrs = set()
                 t.deps = set()
@@ -510,7 +548,7 @@ class BazelBuild:
             # Add some scaffolding for common options that could be easily tweaked
             vals = []
             flags_n_opts = self.commonFlags.get(k, {})
-            for c in ["copts", "defines", "linkopts"]:
+            for c in ["copts", "conlyopts", "cxxopts", "defines", "linkopts"]:
                 flags = flags_n_opts.get(c, set())
                 if isinstance(flags, str):
                     vals.append(f"common_{c} = {flags}\n")
@@ -629,11 +667,16 @@ class BazelTarget(BaseBazelTarget):
         self.includeDirs: set[IncludeDir] = set()
         self.addPrefixIfRequired: bool = True
         self.copts: set[str] = set()
+        self.conlyopts: set[str] = set()
+        self.cxxopts: set[str] = set()
         self.defines: set[str] = set()
         self.data: set[BaseBazelTarget] = set()
 
     def addCopt(self, opt: str):
-        self.copts.add(opt)
+        conlyopts, cxxopts, copts = _split_language_opts([opt])
+        self.conlyopts.update(conlyopts)
+        self.cxxopts.update(cxxopts)
+        self.copts.update(copts)
 
     def addDefine(self, define: str):
         self.defines.add(define)
@@ -738,7 +781,13 @@ class BazelTarget(BaseBazelTarget):
         sources = [f for f in self.srcs]
         includes = set()
         copts = set()
+        conlyopts, cxxopts, copts = _split_language_opts(self.copts)
+        self.copts = copts
+        self.conlyopts.update(conlyopts)
+        self.cxxopts.update(cxxopts)
         copts.update(self.copts)
+        conlyopts = set(self.conlyopts)
+        cxxopts = set(self.cxxopts)
         for dir in list(self.includeDirs):
             includes.add(f'"{dir[0]}"')
         # FIXME for the moment move defines to copts so that they are not propagated to
@@ -757,6 +806,8 @@ class BazelTarget(BaseBazelTarget):
             "srcs": sources,
             "hdrs": headers,
             "copts": list(copts),
+            "conlyopts": list(conlyopts),
+            "cxxopts": list(cxxopts),
             "defines": list(self.defines),
             "data": data,
             "includes": list(includes),
