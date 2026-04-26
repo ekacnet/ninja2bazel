@@ -1,0 +1,6 @@
+py_binary(
+    name = "render_protocol_version_header",
+    srcs = ["render_protocol_version_header.py"],
+    main = "render_protocol_version_header.py",
+    visibility = ["//visibility:public"],
+)
