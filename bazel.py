@@ -27,6 +27,16 @@ T = TypeVar("T")
 CompilationFlags = Dict[str, Union[str, Set[str]]]
 BASIC_C_STD_RE = re.compile(r"^-std=(?:c|gnu)[0-9A-Za-z]+$")
 BASIC_CXX_STD_RE = re.compile(r"^-std=(?:c\+\+|gnu\+\+)[0-9A-Za-z]+$")
+RULES_CC_BZL = "@rules_cc//cc:defs.bzl"
+RULES_CC_SYMBOLS = (
+    "cc_binary",
+    "cc_import",
+    "cc_library",
+    "cc_shared_library",
+    "cc_test",
+)
+RULES_PYTHON_LOAD = 'load("@rules_python//python:defs.bzl", "py_binary")'
+RULES_SHELL_LOAD = 'load("@rules_shell//shell:sh_binary.bzl", "sh_binary")'
 
 
 def _normalize_flag(flag: str) -> str:
@@ -48,6 +58,28 @@ def _split_language_opts(
         else:
             copts.add(opt)
     return conlyopts, cxxopts, copts
+
+
+def _format_rules_cc_load(symbols: Iterable[str]) -> str:
+    ordered_symbols = [symbol for symbol in RULES_CC_SYMBOLS if symbol in symbols]
+    quoted_symbols = ", ".join([f'"{symbol}"' for symbol in ordered_symbols])
+    return f'load("{RULES_CC_BZL}", {quoted_symbols})'
+
+
+def _merge_rules_cc_loads(loads: Iterable[str]) -> List[str]:
+    symbols: Set[str] = set()
+    other_loads: List[str] = []
+    prefix = f'load("{RULES_CC_BZL}", '
+    for load in loads:
+        if load.startswith(prefix):
+            for symbol in RULES_CC_SYMBOLS:
+                if f'"{symbol}"' in load:
+                    symbols.add(symbol)
+        else:
+            other_loads.append(load)
+    if symbols:
+        other_loads.append(_format_rules_cc_load(symbols))
+    return other_loads
 
 
 def _getPrefix(
@@ -229,7 +261,12 @@ class BazelCCImport:
         return f"cc_import {self.name}"
 
     def getGlobalImport(self) -> str:
-        return ""
+        if self.alias is not None:
+            return ""
+        symbols = {"cc_import"}
+        if not self.skipWrapping:
+            symbols.add("cc_library")
+        return _format_rules_cc_load(symbols)
 
     def getAllHeaders(self, deps_only=False):
         # cc_import have headers but we don't include them in the upper target
@@ -534,6 +571,7 @@ class BazelBuild:
 
         for k, v in topContent.items():
             topStanza = list(filter(lambda x: x != "", v))
+            topStanza = _merge_rules_cc_loads(topStanza)
             if len(topStanza) > 0:
                 # Force empty line
 
@@ -736,6 +774,11 @@ class BazelTarget(BaseBazelTarget):
             deps = f" DEPS[{' '.join([str(d.targetName()) for d in self.deps])}]"
             base += deps
         return base
+
+    def getGlobalImport(self) -> str:
+        if self.type in RULES_CC_SYMBOLS:
+            return _format_rules_cc_load({self.type})
+        return ""
 
     def asBazel(
         self, commonFlags: CompilationFlags, defaultPrefix: str = None
@@ -1164,6 +1207,9 @@ class PyBinaryBazelTarget(BaseBazelTarget):
     def addSrc(self, target: BaseBazelTarget):
         self.srcs.add(target)
 
+    def getGlobalImport(self) -> str:
+        return RULES_PYTHON_LOAD
+
 
 class ShBinaryBazelTarget(BaseBazelTarget):
     def __init__(self, name: str, location: str):
@@ -1189,6 +1235,9 @@ class ShBinaryBazelTarget(BaseBazelTarget):
 
     def addSrc(self, target: BaseBazelTarget):
         self.srcs.add(target)
+
+    def getGlobalImport(self) -> str:
+        return RULES_SHELL_LOAD
 
 
 bazelcache: Dict[str, Any] = {}
