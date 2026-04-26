@@ -10,6 +10,8 @@ from bazel import (
     BazelGRPCCCProtoLibrary,
     BazelGenRuleTarget,
     BazelProtoLibrary,
+    PyBinaryBazelTarget,
+    ShBinaryBazelTarget,
     BazelTarget,
     ExportedFile,
     _getPrefix,
@@ -43,6 +45,26 @@ class TestBazelTarget(unittest.TestCase):
             ]
         }
         self.assertEqual(res, expected)
+
+    def test_cc_targets_emit_explicit_rules_cc_load(self):
+        self.assertEqual(
+            BazelTarget("cc_library", "lib", "src").getGlobalImport(),
+            'load("@rules_cc//cc:defs.bzl", "cc_library")',
+        )
+        self.assertEqual(
+            BazelTarget("cc_binary", "app", "src").getGlobalImport(),
+            'load("@rules_cc//cc:defs.bzl", "cc_binary")',
+        )
+
+    def test_py_and_sh_targets_emit_explicit_loads(self):
+        self.assertEqual(
+            PyBinaryBazelTarget("tool", "src").getGlobalImport(),
+            'load("@rules_python//python:defs.bzl", "py_binary")',
+        )
+        self.assertEqual(
+            ShBinaryBazelTarget("tool", "src").getGlobalImport(),
+            'load("@rules_shell//shell:sh_binary.bzl", "sh_binary")',
+        )
 
 
 class TestBazelUtils(unittest.TestCase):
@@ -89,6 +111,15 @@ class TestBazelUtils(unittest.TestCase):
         self.assertIn("foo", res)
         self.assertIn("raw_foo", res)
         self.assertTrue(any("cc_import(" in line for line in res["raw_foo"]))
+        self.assertEqual(
+            imp.getGlobalImport(),
+            'load("@rules_cc//cc:defs.bzl", "cc_import", "cc_library")',
+        )
+        imp.setSkipWrapping(True)
+        self.assertEqual(
+            imp.getGlobalImport(),
+            'load("@rules_cc//cc:defs.bzl", "cc_import")',
+        )
 
 
 class TestBazelGen(unittest.TestCase):
@@ -168,6 +199,12 @@ class TestBazelGen(unittest.TestCase):
         self.assertIn("foo_proto_cc_grpc", src_content)
         self.assertIn("generated.h", src_content)
         self.assertIn(
+            'load("@rules_cc//cc:defs.bzl", "cc_library")',
+            src_content,
+        )
+        self.assertNotIn('"cc_binary"', src_content)
+        self.assertNotIn('"cc_shared_library"', src_content)
+        self.assertIn(
             'load("@rules_proto//proto:defs.bzl", "proto_library")', src_content
         )
         self.assertIn(
@@ -177,3 +214,22 @@ class TestBazelGen(unittest.TestCase):
         self.assertNotIn(
             'load("//src:helpers.bzl", "add_bazel_out_prefix")', src_content
         )
+
+    def test_gen_bazel_build_content_merges_needed_rules_cc_symbols(self) -> None:
+        build = BazelBuild("src/")
+        lib = BazelTarget("cc_library", "lib", "src")
+        app = BazelTarget("cc_binary", "app", "src")
+        build.bazelTargets.update({lib, app})
+
+        src_content = build.genBazelBuildContent()["src"]
+
+        self.assertIn(
+            'load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library")',
+            src_content,
+        )
+        self.assertNotIn(
+            'load("@rules_cc//cc:defs.bzl", "cc_binary")\n'
+            'load("@rules_cc//cc:defs.bzl", "cc_library")',
+            src_content,
+        )
+        self.assertNotIn('"cc_shared_library"', src_content)
