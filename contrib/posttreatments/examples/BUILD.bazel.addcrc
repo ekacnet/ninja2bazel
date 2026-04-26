@@ -1,0 +1,26 @@
+config_setting(
+    name = "platform_linux_arm64",
+    constraint_values = [
+        "@platforms//os:linux",
+        "@platforms//cpu:arm64",
+    ],
+)
+
+cc_library(
+    name = "crc32",
+    srcs = ["crc32.cc"],
+    hdrs = ["crc32.h"],
+    copts = [
+        "-Wall",
+        "-Wextra",
+    ],
+)
+
+cc_library(
+    name = "adler32",
+    srcs = ["adler32.cc"],
+    hdrs = ["adler32.h"],
+    copts = [
+        "-Wall",
+    ],
+)
