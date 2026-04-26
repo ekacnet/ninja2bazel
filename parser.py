@@ -5,7 +5,7 @@ import os
 import subprocess
 import sys
 import time
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from cc_import_parse import parseCCImports
 from ninjabuild import genBazelBuildFiles, getBuildTargets
@@ -30,6 +30,36 @@ def parse_manually_generated(manually_generated: List[str]) -> Dict[str, str]:
 # FIXME: This should be a parameter
 # if relative it's relative to the rootdir
 BUILD_CUSTOMIZATION_DIRECTORY = "bazel/cpp"
+
+
+def _build_post_treatment_command(script: str, build_file: str) -> List[str]:
+    if script.endswith(".py"):
+        return [sys.executable, script, build_file]
+    return [script, build_file]
+
+
+def run_post_treatments(
+    build_file: str, post_treatments: Optional[List[str]]
+) -> None:
+    if not post_treatments:
+        return
+
+    for script in post_treatments:
+        if not os.path.exists(script):
+            logging.fatal(f"Post-treatment script {script} does not exist")
+            sys.exit(-1)
+
+        cmd = _build_post_treatment_command(script, build_file)
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode == 0:
+            continue
+
+        logging.error(f"Post-treatment failed for {build_file} with script {script}")
+        if result.stdout:
+            logging.error(result.stdout.rstrip())
+        if result.stderr:
+            logging.error(result.stderr.rstrip())
+        sys.exit(result.returncode or -1)
 
 
 def main(argv=None):
@@ -66,6 +96,11 @@ def main(argv=None):
         "--top-level-target",
         action="append",
         help="The name of top level target(s) to be generated, if not specified all targets will be generated",
+    )
+    parser.add_argument(
+        "--post-treatment",
+        action="append",
+        help="Executable run after each generated BUILD.bazel file; receives the file path to rewrite",
     )
 
     args = parser.parse_args(argv)
@@ -161,8 +196,10 @@ def main(argv=None):
             logging.info(
                 f"Wrote {rootdir}{name}{os.path.sep}BUILD.bazel len = {len(content)}"
             )
-            with open(f"{rootdir}{name}{os.path.sep}BUILD.bazel", "w") as f:
+            build_file = f"{rootdir}{name}{os.path.sep}BUILD.bazel"
+            with open(build_file, "w") as f:
                 f.write(content)
+            run_post_treatments(build_file, args.post_treatment)
 
 
 def getCompilerIncludesDir(compiler: str = "clang++") -> List[str]:

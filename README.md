@@ -119,6 +119,22 @@ if you want to build things after the bazelfiication to checkt that everything s
 
 `ninja2bazel` supports remapping of paths/files and manually generated targets.
 
+### Post-treatments
+
+Generated `BUILD.bazel` files can be rewritten immediately after generation with
+one or more `--post-treatment` scripts. Each script receives the path to the
+generated file and can update it in place.
+
+```
+python3 parser.py -p "." path/to/build.ninja path/to/src \
+    --post-treatment contrib/posttreatments/add_crc32_arm_crc_copts.py
+```
+
+There is a complete AST-based example in `contrib/posttreatments/`.
+That folder also contains a second example that injects a `genrule` to render
+`pregenerated/flow/include/flow/ProtocolVersion.h` from
+`flow/ProtocolVersion.h.cmake` and `flow/ProtocolVersions.cmake`.
+
 ### Remapping paths/files
 
 Initially this was developped to deal with symlinks to other folders outside of the what was currently bazelified, for instance your are trying to bazelify your C++ code that is in `cpp` but you have already bazelified your protobuf that is in `proto` and you have a symlink from `cpp/proto` to `../proto`, using `--remap cpp/proto=proto` would allow to use targets that would be defined in the proto folder.
