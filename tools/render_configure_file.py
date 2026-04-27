@@ -5,7 +5,12 @@ from pathlib import Path
 
 
 SET_RE = re.compile(
-    r"set\(\s*([A-Za-z_][A-Za-z0-9_]*)\s+(.*?)\s*\)",
+    r"(?<![A-Za-z0-9_])set\(\s*([A-Za-z_][A-Za-z0-9_]*)\s+(.*?)\s*\)",
+    re.DOTALL,
+)
+ENV_SET_RE = re.compile(
+    r"(?<![A-Za-z0-9_])env_set\(\s*([A-Za-z_][A-Za-z0-9_]*)\s+(.+?)\s+"
+    r"(?:BOOL|STRING|PATH|FILEPATH|INTERNAL)\b.*?\)",
     re.DOTALL,
 )
 AT_PLACEHOLDER_RE = re.compile(r"@([A-Za-z_][A-Za-z0-9_]*)@")
@@ -20,6 +25,13 @@ def _normalize_value(raw_value: str) -> str:
     value = raw_value.strip()
     if "#" in value:
         value = value.split("#", 1)[0].rstrip()
+    cache_match = re.match(
+        r"(.+?)\s+CACHE\s+(?:BOOL|STRING|PATH|FILEPATH|INTERNAL)\b.*",
+        value,
+        re.DOTALL,
+    )
+    if cache_match:
+        value = cache_match.group(1).strip()
     if value.startswith('"') and value.endswith('"'):
         return value[1:-1]
     return value
@@ -29,6 +41,8 @@ def parse_cmake_definitions(contents: str) -> dict[str, str]:
     definitions: dict[str, str] = {}
     for match in SET_RE.finditer(contents):
         definitions[match.group(1)] = _normalize_value(match.group(2))
+    for match in ENV_SET_RE.finditer(contents):
+        definitions[match.group(1)] = render_template(_normalize_value(match.group(2)), definitions)
     return definitions
 
 
