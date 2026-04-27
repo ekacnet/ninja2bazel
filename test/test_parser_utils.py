@@ -5,6 +5,7 @@ from unittest import mock
 
 from parser import (
     _build_post_treatment_command,
+    _configure_vars_from_cli_paths,
     parse_manually_generated,
     run_post_treatments,
 )
@@ -30,6 +31,39 @@ class TestParserUtils(unittest.TestCase):
             _build_post_treatment_command("./script", "foo/BUILD.bazel"),
             ["./script", "foo/BUILD.bazel"],
         )
+
+    def test_configure_vars_from_cli_paths_sets_cmake_dirs(self):
+        values = _configure_vars_from_cli_paths(
+            "/tmp/project/src",
+            "/tmp/project/build",
+            ".",
+            None,
+        )
+
+        self.assertEqual(values["CMAKE_SOURCE_DIR"], "/tmp/project/src")
+        self.assertEqual(values["CMAKE_BINARY_DIR"], "/tmp/project/build")
+
+    def test_configure_vars_from_cli_paths_uses_prefix_for_top_level_build(self):
+        values = _configure_vars_from_cli_paths(
+            "/tmp/project/src",
+            "/tmp/project/build",
+            "subdir",
+            None,
+        )
+
+        self.assertEqual(values["CMAKE_SOURCE_DIR"], "/tmp/project/src/subdir")
+
+    def test_configure_vars_from_cli_paths_allows_cli_override(self):
+        values = _configure_vars_from_cli_paths(
+            "/tmp/project/src",
+            "/tmp/project/build",
+            ".",
+            ["CMAKE_SOURCE_DIR=/override/src", "CUSTOM=yes"],
+        )
+
+        self.assertEqual(values["CMAKE_SOURCE_DIR"], "/override/src")
+        self.assertEqual(values["CMAKE_BINARY_DIR"], "/tmp/project/build")
+        self.assertEqual(values["CUSTOM"], "yes")
 
     @mock.patch("parser.subprocess.run")
     @mock.patch("parser.os.path.exists", return_value=True)
