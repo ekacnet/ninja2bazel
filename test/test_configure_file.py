@@ -253,6 +253,9 @@ class TestConfigureFile(unittest.TestCase):
             template.write_text(
                 "#cmakedefine ENABLED\n"
                 "# cmakedefine SPACED\n"
+                "#cmakedefine ENV_DISABLED\n"
+                "#cmakedefine CACHE_DISABLED\n"
+                "#cmakedefine FROM_ENV_VAR\n"
                 "#cmakedefine DISABLED\n"
                 "#cmakedefine WITH_VALUE @VALUE@\n"
                 "# cmakedefine01 SPACED_FEATURE\n"
@@ -262,6 +265,10 @@ class TestConfigureFile(unittest.TestCase):
             values.write_text(
                 "set(ENABLED ON)\n"
                 "set(SPACED ON)\n"
+                "env_set(ENV_DISABLED OFF BOOL \"disabled from env_set\")\n"
+                "set(CACHE_DISABLED OFF CACHE BOOL \"disabled from cache\")\n"
+                "set(default_value OFF)\n"
+                "env_set(FROM_ENV_VAR ${default_value} BOOL \"disabled from variable\")\n"
                 "set(DISABLED OFF)\n"
                 "set(WITH_VALUE YES)\n"
                 "set(VALUE 123)\n"
@@ -278,6 +285,9 @@ class TestConfigureFile(unittest.TestCase):
                 output.read_text(),
                 "#define ENABLED\n"
                 "#define SPACED\n"
+                "/* #undef ENV_DISABLED */\n"
+                "/* #undef CACHE_DISABLED */\n"
+                "/* #undef FROM_ENV_VAR */\n"
                 "/* #undef DISABLED */\n"
                 "#define WITH_VALUE 123\n"
                 "#define SPACED_FEATURE 1\n"
@@ -292,7 +302,7 @@ class TestConfigureFile(unittest.TestCase):
             root.mkdir()
             build.mkdir()
             (root / "config.h.cmake").write_text("# cmakedefine ENABLED\n")
-            (root / "values.cmake").write_text("set(ENABLED ON)\n")
+            (root / "values.cmake").write_text("env_set(ENABLED ON BOOL \"enabled\")\n")
             list_file = Path(td) / "configure_files.txt"
             list_file.write_text(
                 "configure_file(${CMAKE_CURRENT_SOURCE_DIR}/config.h.cmake "

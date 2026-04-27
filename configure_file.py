@@ -8,7 +8,7 @@ from typing import Dict, Iterable, List, Optional, Set
 
 PLACEHOLDER_RE = re.compile(r"@([A-Za-z_][A-Za-z0-9_]*)@|\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 CMAKE_DEFINE_RE = re.compile(r"^\s*#\s*cmakedefine(?:01)?\s+([A-Za-z_][A-Za-z0-9_]*)", re.MULTILINE)
-SET_RE_TEMPLATE = r"set\s*\(\s*{name}(?:\s|\))"
+SET_RE_TEMPLATE = r"(?:^|[^A-Za-z0-9_])(?:env_set|set)\s*\(\s*{name}(?:\s|\))"
 
 
 @dataclass(frozen=True)
