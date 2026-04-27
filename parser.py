@@ -2,11 +2,13 @@
 import argparse
 import logging
 import os
+import shutil
 import subprocess
 import sys
 import time
 from typing import Dict, List, Optional, Set
 
+from build import CONFIGURE_FILE_TOOL_PATH
 from cc_import_parse import parseCCImports
 from configure_file import parse_configure_files_list, parse_configure_vars
 from ninjabuild import genBazelBuildFiles, getBuildTargets
@@ -31,6 +33,10 @@ def parse_manually_generated(manually_generated: List[str]) -> Dict[str, str]:
 # FIXME: This should be a parameter
 # if relative it's relative to the rootdir
 BUILD_CUSTOMIZATION_DIRECTORY = "bazel/cpp"
+TOOL_SOURCE_DIRECTORY = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "tools",
+)
 
 
 def _build_post_treatment_command(script: str, build_file: str) -> List[str]:
@@ -57,6 +63,26 @@ def _configure_vars_from_cli_paths(
     }
     ret.update(parse_configure_vars(configure_vars))
     return ret
+
+
+def _copy_if_different(source: str, destination: str) -> None:
+    source_abs = os.path.abspath(source)
+    destination_abs = os.path.abspath(destination)
+    if source_abs == destination_abs:
+        return
+    shutil.copy2(source_abs, destination_abs)
+
+
+def install_configure_file_tool(rootdir: str, prefix: str) -> None:
+    tool_destination = os.path.join(
+        _top_level_build_dir(rootdir, prefix),
+        CONFIGURE_FILE_TOOL_PATH,
+    )
+    os.makedirs(os.path.dirname(tool_destination), exist_ok=True)
+    _copy_if_different(
+        os.path.join(TOOL_SOURCE_DIRECTORY, "render_configure_file.py"),
+        tool_destination,
+    )
 
 
 def run_post_treatments(
@@ -278,6 +304,8 @@ def main(argv=None):
     end = time.time()
     print(f"Time to parse configure_files: {end - start}", file=sys.stdout)
     start = time.time()
+    if configure_files:
+        install_configure_file_tool(rootdir, args.prefix)
     logging.info("Generating Bazel BUILD files from buildTargets")
     logging.info(f"There are {len(top_levels_targets)} top level targets")
 
