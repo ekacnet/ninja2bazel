@@ -13,6 +13,7 @@ from bazel import (
     BazelCCProtoLibrary,
     BazelExternalDep,
     BazelGenRuleTarget,
+    BazelGenRuleTargetOutput,
     BazelGRPCCCProtoLibrary,
     BazelProtoLibrary,
     BazelTarget,
@@ -20,6 +21,7 @@ from bazel import (
     ShBinaryBazelTarget,
     getObject,
 )
+from configure_file import ConfigureFile, find_configure_file
 from helpers import resolvePath
 from visitor import VisitorContext
 
@@ -51,6 +53,8 @@ class BazelBuildVisitorContext(VisitorContext):
     next_current: Optional[BaseBazelTarget] = None
     currentBuild: Optional["Build"] = None
     prefix: Optional["str"] = None
+    configure_files: Optional[Dict[str, ConfigureFile]] = None
+    configure_binary_dir: Optional[str] = None
 
     def __post_init__(self):
         if self.prefix.endswith(os.path.sep):
@@ -64,6 +68,16 @@ class BazelBuildVisitorContext(VisitorContext):
 
     def cleanup(self):
         pass
+
+
+def _relpath_for_bazel(path: str, rootdir: str) -> str:
+    if path.startswith(rootdir):
+        return path[len(rootdir) :].lstrip(os.path.sep)
+    return path
+
+
+def _configure_file_rule_name(output: str) -> str:
+    return "configure_" + re.sub(r"[^A-Za-z0-9_]", "_", output).strip("_")
 
 
 class BuildFileGroupingStrategy:
@@ -520,6 +534,58 @@ class Build:
                 cls._addAllCCimportDeps(d, ctx)
 
     @classmethod
+    def _genConfigureFileRule(
+        cls,
+        ctx: BazelBuildVisitorContext,
+        configure_file: ConfigureFile,
+        output: str,
+    ) -> BaseBazelTarget:
+        location = ctx.prefix or "."
+        normalized_output = output.replace("<pregenerated>/", "")
+        if not normalized_output.startswith("pregenerated/"):
+            normalized_output = f"pregenerated/{normalized_output}"
+
+        genTarget = getObject(
+            BazelGenRuleTarget,
+            _configure_file_rule_name(normalized_output),
+            location,
+        )
+        if len(genTarget.outs) == 0:
+            genTarget.addOut(normalized_output)
+            tool = BazelExternalDep("render_configure_file", "contrib/posttreatments")
+            genTarget.addTool(tool)
+
+            source = _relpath_for_bazel(configure_file.source, ctx.rootdir)
+            genTarget.addSrc(
+                cls._genExportedFile(
+                    filename=source,
+                    locationCaller=genTarget.location,
+                    ctx=ctx,
+                )
+            )
+            value_files = [
+                _relpath_for_bazel(value_file, ctx.rootdir)
+                for value_file in configure_file.value_files
+            ]
+            for value_file in value_files:
+                genTarget.addSrc(
+                    cls._genExportedFile(
+                        filename=value_file,
+                        locationCaller=genTarget.location,
+                        ctx=ctx,
+                    )
+                )
+
+            args = [f"$(location {source})", "$@"]
+            args.extend([f"$(location {value_file})" for value_file in value_files])
+            genTarget.cmd = (
+                "$(location //contrib/posttreatments:render_configure_file) "
+                + " ".join(args)
+            )
+            ctx.bazelbuild.bazelTargets.add(genTarget)
+        return next(iter(genTarget.outs))
+
+    @classmethod
     def handleFileForBazelGen(
         cls,
         el: "BuildTarget",
@@ -703,14 +769,25 @@ class Build:
                 pregenerated = False
                 name = f"{el.shortName}"
 
-            exported = cls._genExportedFile(
-                filename=name,
-                locationCaller=ctx.current.location,
-                ctx=ctx,
-                fileLocation=None,
-                ispregenerated=pregenerated,
-            )
-            ctx.bazelbuild.bazelTargets.add(exported)
+            configure_file = None
+            if pregenerated:
+                configure_file = find_configure_file(
+                    ctx.configure_files or {},
+                    name,
+                    ctx.configure_binary_dir or "",
+                )
+            if configure_file is not None:
+                exported = cls._genConfigureFileRule(ctx, configure_file, name)
+            else:
+                exported = cls._genExportedFile(
+                    filename=name,
+                    locationCaller=ctx.current.location,
+                    ctx=ctx,
+                    fileLocation=None,
+                    ispregenerated=pregenerated,
+                )
+            if not isinstance(exported, BazelGenRuleTargetOutput):
+                ctx.bazelbuild.bazelTargets.add(exported)
             ctx.current.addSrc(exported)
 
             if el.includes is None:
@@ -779,13 +856,21 @@ class Build:
                 # logging.info(f"Adding header {i} using include {includeDir} from {el.name} {generated} to {ctx.current.name}")
                 if includeDir is not None:
                     if pregenerated:
-                        ef = cls._genExportedFile(
-                            filename=i,
-                            locationCaller=ctx.current.location,
-                            ctx=ctx,
-                            fileLocation=None,
-                            ispregenerated=True,
+                        configure_file = find_configure_file(
+                            ctx.configure_files or {},
+                            i,
+                            ctx.configure_binary_dir or "",
                         )
+                        if configure_file is not None:
+                            ef = cls._genConfigureFileRule(ctx, configure_file, i)
+                        else:
+                            ef = cls._genExportedFile(
+                                filename=i,
+                                locationCaller=ctx.current.location,
+                                ctx=ctx,
+                                fileLocation=None,
+                                ispregenerated=True,
+                            )
                     else:
                         ef = cls._genExportedFile(
                             filename=i, locationCaller=ctx.current.location, ctx=ctx
