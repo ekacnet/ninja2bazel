@@ -39,6 +39,26 @@ def _build_post_treatment_command(script: str, build_file: str) -> List[str]:
     return [script, build_file]
 
 
+def _top_level_build_dir(rootdir: str, prefix: str) -> str:
+    if prefix in ("", "."):
+        return rootdir
+    return os.path.join(rootdir, prefix)
+
+
+def _configure_vars_from_cli_paths(
+    rootdir: str,
+    binary_dir: str,
+    prefix: str,
+    configure_vars: Optional[List[str]],
+) -> Dict[str, str]:
+    ret = {
+        "CMAKE_SOURCE_DIR": os.path.abspath(_top_level_build_dir(rootdir, prefix)),
+        "CMAKE_BINARY_DIR": os.path.abspath(binary_dir),
+    }
+    ret.update(parse_configure_vars(configure_vars))
+    return ret
+
+
 def run_post_treatments(
     build_file: str, post_treatments: Optional[List[str]]
 ) -> None:
@@ -247,7 +267,12 @@ def main(argv=None):
         args.configure_files_list,
         rootdir,
         cur_dir,
-        parse_configure_vars(args.configure_var),
+        _configure_vars_from_cli_paths(
+            rootdir,
+            cur_dir,
+            args.prefix,
+            args.configure_var,
+        ),
         needed_configure_outputs,
     )
     end = time.time()
