@@ -7,6 +7,7 @@ from typing import Dict, Iterable, List, Optional, Set
 
 
 PLACEHOLDER_RE = re.compile(r"@([A-Za-z_][A-Za-z0-9_]*)@|\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+CMAKE_DEFINE_RE = re.compile(r"^\s*#\s*cmakedefine(?:01)?\s+([A-Za-z_][A-Za-z0-9_]*)", re.MULTILINE)
 SET_RE_TEMPLATE = r"set\s*\(\s*{name}(?:\s|\))"
 
 
@@ -99,14 +100,16 @@ def _parse_configure_file_args(line: str) -> Optional[List[str]]:
     return args
 
 
-def _find_placeholders(template_path: str) -> Set[str]:
+def _find_placeholders(template_path: str) -> tuple[Set[str], Set[str]]:
     try:
         with open(template_path, "r") as f:
             contents = f.read()
     except OSError as exc:
         logging.fatal(f"Cannot read configure_file template {template_path}: {exc}")
         raise SystemExit(-1)
-    return {match.group(1) or match.group(2) for match in PLACEHOLDER_RE.finditer(contents)}
+    required = {match.group(1) or match.group(2) for match in PLACEHOLDER_RE.finditer(contents)}
+    optional = {match.group(1) for match in CMAKE_DEFINE_RE.finditer(contents)}
+    return required, optional
 
 
 def _iter_candidate_files(rootdir: str) -> Iterable[str]:
@@ -118,7 +121,12 @@ def _iter_candidate_files(rootdir: str) -> Iterable[str]:
                 yield os.path.join(current, filename)
 
 
-def _find_value_files(rootdir: str, placeholders: Set[str], template_path: str) -> tuple[str, ...]:
+def _find_value_files(
+    rootdir: str,
+    placeholders: Set[str],
+    template_path: str,
+    fail_on_missing: bool = True,
+) -> tuple[str, ...]:
     if not placeholders:
         return ()
 
@@ -136,7 +144,7 @@ def _find_value_files(rootdir: str, placeholders: Set[str], template_path: str) 
                 found[placeholder].add(path)
 
     missing = sorted([placeholder for placeholder, paths in found.items() if not paths])
-    if missing:
+    if missing and fail_on_missing:
         logging.fatal(
             "Missing CMake definitions for configure_file placeholders "
             f"{', '.join(missing)} in {template_path}"
@@ -276,8 +284,23 @@ def parse_configure_files_list(
             continue
 
         variables = configure_vars or {}
-        placeholders = _find_placeholders(source) - set(variables.keys())
-        value_files = _find_value_files(source_dir, placeholders, source)
+        required_placeholders, optional_placeholders = _find_placeholders(source)
+        configured_variable_names = set(variables.keys())
+        required_placeholders -= configured_variable_names
+        optional_placeholders -= configured_variable_names
+        value_files = tuple(
+            sorted(
+                set(_find_value_files(source_dir, required_placeholders, source))
+                | set(
+                    _find_value_files(
+                        source_dir,
+                        optional_placeholders,
+                        source,
+                        fail_on_missing=False,
+                    )
+                )
+            )
+        )
         entry = ConfigureFile(
             source=source,
             output=output,

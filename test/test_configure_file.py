@@ -245,6 +245,83 @@ class TestConfigureFile(unittest.TestCase):
                 "#define A from-cli\n#define B from-file\n",
             )
 
+    def test_render_configure_file_handles_cmakedefine(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            template = Path(td) / "config.h.cmake"
+            values = Path(td) / "values.cmake"
+            output = Path(td) / "out" / "config.h"
+            template.write_text(
+                "#cmakedefine ENABLED\n"
+                "# cmakedefine SPACED\n"
+                "#cmakedefine DISABLED\n"
+                "#cmakedefine WITH_VALUE @VALUE@\n"
+                "# cmakedefine01 SPACED_FEATURE\n"
+                "#cmakedefine01 FEATURE\n"
+                "#cmakedefine01 MISSING\n"
+            )
+            values.write_text(
+                "set(ENABLED ON)\n"
+                "set(SPACED ON)\n"
+                "set(DISABLED OFF)\n"
+                "set(WITH_VALUE YES)\n"
+                "set(VALUE 123)\n"
+                "set(SPACED_FEATURE TRUE)\n"
+                "set(FEATURE TRUE)\n"
+            )
+
+            subprocess.run(
+                [sys.executable, RENDERER, str(template), str(output), str(values)],
+                check=True,
+            )
+
+            self.assertEqual(
+                output.read_text(),
+                "#define ENABLED\n"
+                "#define SPACED\n"
+                "/* #undef DISABLED */\n"
+                "#define WITH_VALUE 123\n"
+                "#define SPACED_FEATURE 1\n"
+                "#define FEATURE 1\n"
+                "#define MISSING 0\n",
+            )
+
+    def test_parse_configure_files_list_finds_cmakedefine_value_files(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "src"
+            build = Path(td) / "build"
+            root.mkdir()
+            build.mkdir()
+            (root / "config.h.cmake").write_text("# cmakedefine ENABLED\n")
+            (root / "values.cmake").write_text("set(ENABLED ON)\n")
+            list_file = Path(td) / "configure_files.txt"
+            list_file.write_text(
+                "configure_file(${CMAKE_CURRENT_SOURCE_DIR}/config.h.cmake "
+                "${CMAKE_CURRENT_BINARY_DIR}/config.h)\n"
+            )
+
+            parsed = parse_configure_files_list(str(list_file), str(root), str(build))
+
+        self.assertIn("config.h", parsed)
+        self.assertEqual(len(parsed["config.h"].value_files), 1)
+
+    def test_parse_configure_files_list_allows_missing_cmakedefine(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "src"
+            build = Path(td) / "build"
+            root.mkdir()
+            build.mkdir()
+            (root / "config.h.cmake").write_text("#cmakedefine NDEBUG\n")
+            list_file = Path(td) / "configure_files.txt"
+            list_file.write_text(
+                "configure_file(${CMAKE_CURRENT_SOURCE_DIR}/config.h.cmake "
+                "${CMAKE_CURRENT_BINARY_DIR}/config.h)\n"
+            )
+
+            parsed = parse_configure_files_list(str(list_file), str(root), str(build))
+
+        self.assertIn("config.h", parsed)
+        self.assertEqual(parsed["config.h"].value_files, ())
+
     def test_pregenerated_include_gets_configure_file_genrule(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "src"
