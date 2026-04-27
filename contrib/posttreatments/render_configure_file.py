@@ -45,10 +45,12 @@ def generate_file(
     template_path: Path,
     output_path: Path,
     values_paths: list[Path],
+    variables: dict[str, str],
 ) -> None:
     definitions: dict[str, str] = {}
     for values_path in values_paths:
         definitions.update(parse_cmake_definitions(values_path.read_text()))
+    definitions.update(variables)
     rendered = render_template(template_path.read_text(), definitions)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(rendered)
@@ -59,9 +61,26 @@ def main() -> int:
     parser.add_argument("template")
     parser.add_argument("output")
     parser.add_argument("values", nargs="*")
+    parser.add_argument(
+        "--var",
+        action="append",
+        default=[],
+        help="Template variable in the form key=value",
+    )
     args = parser.parse_args()
 
-    generate_file(Path(args.template), Path(args.output), [Path(v) for v in args.values])
+    variables = {}
+    for variable in args.var:
+        if "=" not in variable:
+            parser.error(f"--var must be in the form key=value: {variable}")
+        key, value = variable.split("=", 1)
+        variables[key] = value
+    generate_file(
+        Path(args.template),
+        Path(args.output),
+        [Path(v) for v in args.values],
+        variables,
+    )
     return 0
 
 

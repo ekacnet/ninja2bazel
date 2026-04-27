@@ -1,6 +1,7 @@
 import logging
 import os
 import re
+import shlex
 from dataclasses import dataclass
 from enum import Enum
 from functools import total_ordering
@@ -577,6 +578,12 @@ class Build:
                 )
 
             args = [f"$(location {source})", "$@"]
+            args.extend(
+                [
+                    f"--var {shlex.quote(f'{key}={value}')}"
+                    for key, value in sorted(configure_file.variables.items())
+                ]
+            )
             args.extend([f"$(location {value_file})" for value_file in value_files])
             genTarget.cmd = (
                 "$(location //contrib/posttreatments:render_configure_file) "
