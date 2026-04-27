@@ -5,7 +5,7 @@ import os
 import subprocess
 import sys
 import time
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 
 from cc_import_parse import parseCCImports
 from configure_file import parse_configure_files_list, parse_configure_vars
@@ -61,6 +61,56 @@ def run_post_treatments(
         if result.stderr:
             logging.error(result.stderr.rstrip())
         sys.exit(result.returncode or -1)
+
+
+def _add_needed_configure_output(outputs: Set[str], path: Optional[str], binary_dir: str) -> None:
+    if not path:
+        return
+
+    normalized = os.path.normpath(path).replace(os.path.sep, "/")
+    outputs.add(normalized)
+    if os.path.isabs(path):
+        rel = os.path.relpath(path, binary_dir)
+        normalized = os.path.normpath(rel).replace(os.path.sep, "/")
+        outputs.add(normalized)
+
+    if normalized.startswith("pregenerated/"):
+        outputs.add(normalized[len("pregenerated/") :])
+    else:
+        outputs.add(f"pregenerated/{normalized}")
+
+
+def collect_needed_configure_outputs(top_levels: List[object], binary_dir: str) -> Set[str]:
+    outputs: Set[str] = set()
+    seen: Set[str] = set()
+
+    def visit(target: object) -> None:
+        name = getattr(target, "name", None)
+        if name in seen:
+            return
+        if name is not None:
+            seen.add(name)
+            _add_needed_configure_output(outputs, name, binary_dir)
+        _add_needed_configure_output(outputs, getattr(target, "shortName", None), binary_dir)
+
+        for include, include_dir in getattr(target, "includes", set()):
+            _add_needed_configure_output(outputs, include, binary_dir)
+            if include_dir is not None:
+                _add_needed_configure_output(outputs, os.path.join(include_dir, include), binary_dir)
+
+        build = getattr(target, "producedby", None)
+        if build is None:
+            return
+        for dep in build.getInputs():
+            visit(dep)
+        for dep in build.depends:
+            if dep.depsAreVirtual():
+                continue
+            visit(dep)
+
+    for top_level in top_levels:
+        visit(top_level)
+    return outputs
 
 
 def main(argv=None):
@@ -171,12 +221,6 @@ def main(argv=None):
     logging.info("Parsing ninja file and buildTargets")
     if not rootdir.endswith(os.path.sep):
         rootdir = f"{rootdir}{os.path.sep}"
-    configure_files = parse_configure_files_list(
-        args.configure_files_list,
-        rootdir,
-        cur_dir,
-        parse_configure_vars(args.configure_var),
-    )
     remap = {}
     if args.remap:
         for e in args.remap:
@@ -197,6 +241,17 @@ def main(argv=None):
     )
     end = time.time()
     print(f"Time to getBuildTargets: {end - start}", file=sys.stdout)
+    start = time.time()
+    needed_configure_outputs = collect_needed_configure_outputs(top_levels_targets, cur_dir)
+    configure_files = parse_configure_files_list(
+        args.configure_files_list,
+        rootdir,
+        cur_dir,
+        parse_configure_vars(args.configure_var),
+        needed_configure_outputs,
+    )
+    end = time.time()
+    print(f"Time to parse configure_files: {end - start}", file=sys.stdout)
     start = time.time()
     logging.info("Generating Bazel BUILD files from buildTargets")
     logging.info(f"There are {len(top_levels_targets)} top level targets")

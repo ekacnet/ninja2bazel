@@ -778,6 +778,12 @@ class Build:
 
             configure_file = None
             if pregenerated:
+                logging.info(
+                    "Handling pregenerated file %s for target %s with workDir=%s",
+                    name,
+                    ctx.current.name,
+                    workDir,
+                )
                 configure_file = find_configure_file(
                     ctx.configure_files or {},
                     name,
@@ -863,6 +869,13 @@ class Build:
                 # logging.info(f"Adding header {i} using include {includeDir} from {el.name} {generated} to {ctx.current.name}")
                 if includeDir is not None:
                     if pregenerated:
+                        logging.info(
+                            "Handling pregenerated include %s from include dir %s "
+                            "for target %s",
+                            i,
+                            includeDir,
+                            ctx.current.name,
+                        )
                         configure_file = find_configure_file(
                             ctx.configure_files or {},
                             i,

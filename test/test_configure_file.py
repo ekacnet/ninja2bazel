@@ -7,7 +7,7 @@ from pathlib import Path
 
 from bazel import BazelBuild, BazelGenRuleTarget, BazelTarget
 from build import BazelBuildVisitorContext, Build, BuildTarget, TopLevelGroupingStrategy
-from configure_file import parse_configure_files_list, parse_configure_vars
+from configure_file import find_configure_file, parse_configure_files_list, parse_configure_vars
 
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -33,8 +33,8 @@ class TestConfigureFile(unittest.TestCase):
 
             parsed = parse_configure_files_list(str(list_file), str(root), str(build))
 
-        self.assertIn("include/flow/ProtocolVersion.h", parsed)
-        entry = parsed["include/flow/ProtocolVersion.h"]
+        self.assertIn("flow/include/flow/ProtocolVersion.h", parsed)
+        entry = parsed["flow/include/flow/ProtocolVersion.h"]
         self.assertEqual(entry.source.replace(os.path.sep, "/").split("/")[-1], "ProtocolVersion.h.cmake")
         self.assertIn("/flow/", entry.source.replace(os.path.sep, "/"))
         self.assertEqual(len(entry.value_files), 1)
@@ -78,6 +78,129 @@ class TestConfigureFile(unittest.TestCase):
         entry = parsed["config.h"]
         self.assertEqual(entry.value_files, ())
         self.assertEqual(entry.variables, {"FROM_CLI": "yes"})
+
+    def test_parse_configure_files_list_skips_unneeded_outputs(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "src"
+            build = Path(td) / "build"
+            root.mkdir()
+            build.mkdir()
+            (root / "needed.h.cmake").write_text("#define V @VERSION@\n")
+            (root / "unused.h.cmake").write_text("#define V @MISSING@\n")
+            (root / "values.cmake").write_text("set(VERSION 1)\n")
+            list_file = Path(td) / "configure_files.txt"
+            list_file.write_text(
+                "configure_file(${CMAKE_CURRENT_SOURCE_DIR}/needed.h.cmake "
+                "${CMAKE_CURRENT_BINARY_DIR}/include/needed.h)\n"
+                "configure_file(${CMAKE_CURRENT_SOURCE_DIR}/unused.h.cmake "
+                "${CMAKE_CURRENT_BINARY_DIR}/include/unused.h)\n"
+            )
+
+            parsed = parse_configure_files_list(
+                str(list_file),
+                str(root),
+                str(build),
+                needed_outputs={"include/needed.h"},
+            )
+
+        self.assertIn("include/needed.h", parsed)
+        self.assertNotIn("include/unused.h", parsed)
+
+    def test_parse_configure_files_list_uses_cmake_file_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "src"
+            build = Path(td) / "build"
+            flow = root / "flow"
+            flow.mkdir(parents=True)
+            build.mkdir()
+            (flow / "ProtocolVersion.h.cmake").write_text("#define V @VERSION@\n")
+            (flow / "ProtocolVersions.cmake").write_text("set(VERSION 1)\n")
+            cmake_file = flow / "ProtocolVersion.cmake"
+            cmake_file.write_text(
+                "configure_file(${CMAKE_CURRENT_SOURCE_DIR}/ProtocolVersion.h.cmake "
+                "${CMAKE_CURRENT_BINARY_DIR}/include/flow/ProtocolVersion.h)\n"
+            )
+
+            parsed = parse_configure_files_list(
+                str(cmake_file),
+                str(root),
+                str(build),
+                needed_outputs={"pregenerated/flow/include/flow/ProtocolVersion.h"},
+            )
+
+        self.assertIn("flow/include/flow/ProtocolVersion.h", parsed)
+        self.assertIn("/flow/", parsed["flow/include/flow/ProtocolVersion.h"].source)
+        self.assertIsNotNone(
+            find_configure_file(
+                parsed,
+                "pregenerated/flow/include/flow/ProtocolVersion.h",
+                str(build),
+            )
+        )
+
+    def test_parse_flat_configure_files_list_infers_directory_from_template(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "src"
+            build = Path(td) / "build"
+            flow = root / "flow"
+            flow.mkdir(parents=True)
+            build.mkdir()
+            (flow / "ProtocolVersion.h.cmake").write_text("#define V @VERSION@\n")
+            (flow / "ProtocolVersions.cmake").write_text("set(VERSION 1)\n")
+            list_file = root / "configure_list"
+            list_file.write_text(
+                "configure_file(${CMAKE_CURRENT_SOURCE_DIR}/ProtocolVersion.h.cmake "
+                "${CMAKE_CURRENT_BINARY_DIR}/include/flow/ProtocolVersion.h)\n"
+            )
+
+            parsed = parse_configure_files_list(
+                str(list_file),
+                str(root),
+                str(build),
+                needed_outputs={"pregenerated/flow/include/flow/ProtocolVersion.h"},
+            )
+
+        self.assertIn("flow/include/flow/ProtocolVersion.h", parsed)
+        self.assertIsNotNone(
+            find_configure_file(
+                parsed,
+                "pregenerated/flow/include/flow/ProtocolVersion.h",
+                str(build),
+            )
+        )
+
+    def test_parse_flat_configure_files_list_infers_current_dir_before_source_suffix(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "src"
+            build = Path(td) / "build"
+            bindings = root / "bindings" / "c"
+            foundationdb = bindings / "foundationdb"
+            foundationdb.mkdir(parents=True)
+            build.mkdir()
+            (foundationdb / "fdb_c_apiversion.h.cmake").write_text("#define V @VERSION@\n")
+            (bindings / "values.cmake").write_text("set(VERSION 1)\n")
+            list_file = root / "configure_list"
+            list_file.write_text(
+                "configure_file(${CMAKE_CURRENT_SOURCE_DIR}/foundationdb/fdb_c_apiversion.h.cmake "
+                "${CMAKE_CURRENT_BINARY_DIR}/foundationdb/fdb_c_apiversion.g.h)\n"
+            )
+
+            parsed = parse_configure_files_list(
+                str(list_file),
+                str(root),
+                str(build),
+                needed_outputs={"pregenerated/bindings/c/foundationdb/fdb_c_apiversion.g.h"},
+            )
+
+        self.assertIn("bindings/c/foundationdb/fdb_c_apiversion.g.h", parsed)
+        self.assertNotIn("bindings/c/foundationdb/foundationdb/fdb_c_apiversion.g.h", parsed)
+        self.assertIsNotNone(
+            find_configure_file(
+                parsed,
+                "pregenerated/bindings/c/foundationdb/fdb_c_apiversion.g.h",
+                str(build),
+            )
+        )
 
     def test_render_configure_file_uses_multiple_value_files(self) -> None:
         with tempfile.TemporaryDirectory() as td:
