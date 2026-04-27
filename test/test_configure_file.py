@@ -7,7 +7,7 @@ from pathlib import Path
 
 from bazel import BazelBuild, BazelGenRuleTarget, BazelTarget
 from build import BazelBuildVisitorContext, Build, BuildTarget, TopLevelGroupingStrategy
-from configure_file import parse_configure_files_list
+from configure_file import parse_configure_files_list, parse_configure_vars
 
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -55,6 +55,30 @@ class TestConfigureFile(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 parse_configure_files_list(str(list_file), str(root), str(build))
 
+    def test_parse_configure_files_list_accepts_cli_configure_vars(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "src"
+            build = Path(td) / "build"
+            root.mkdir()
+            build.mkdir()
+            (root / "config.h.cmake").write_text("#define V @FROM_CLI@\n")
+            list_file = Path(td) / "configure_files.txt"
+            list_file.write_text(
+                "configure_file(${CMAKE_CURRENT_SOURCE_DIR}/config.h.cmake "
+                "${CMAKE_CURRENT_BINARY_DIR}/config.h)\n"
+            )
+
+            parsed = parse_configure_files_list(
+                str(list_file),
+                str(root),
+                str(build),
+                parse_configure_vars(["FROM_CLI=yes"]),
+            )
+
+        entry = parsed["config.h"]
+        self.assertEqual(entry.value_files, ())
+        self.assertEqual(entry.variables, {"FROM_CLI": "yes"})
+
     def test_render_configure_file_uses_multiple_value_files(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             template = Path(td) / "config.h.cmake"
@@ -72,6 +96,32 @@ class TestConfigureFile(unittest.TestCase):
 
             self.assertEqual(output.read_text(), "#define A one\n#define B two\n")
 
+    def test_render_configure_file_uses_cli_vars(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            template = Path(td) / "config.h.cmake"
+            values = Path(td) / "values.cmake"
+            output = Path(td) / "out" / "config.h"
+            template.write_text("#define A @A@\n#define B @B@\n")
+            values.write_text("set(A from-file)\nset(B from-file)\n")
+
+            subprocess.run(
+                [
+                    sys.executable,
+                    RENDERER,
+                    str(template),
+                    str(output),
+                    "--var",
+                    "A=from-cli",
+                    str(values),
+                ],
+                check=True,
+            )
+
+            self.assertEqual(
+                output.read_text(),
+                "#define A from-cli\n#define B from-file\n",
+            )
+
     def test_pregenerated_include_gets_configure_file_genrule(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "src"
@@ -87,7 +137,12 @@ class TestConfigureFile(unittest.TestCase):
                 "configure_file(${CMAKE_CURRENT_SOURCE_DIR}/ProtocolVersion.h.cmake "
                 "${CMAKE_CURRENT_BINARY_DIR}/include/flow/ProtocolVersion.h)\n"
             )
-            configure_files = parse_configure_files_list(str(list_file), str(root), str(build_dir))
+            configure_files = parse_configure_files_list(
+                str(list_file),
+                str(root),
+                str(build_dir),
+                parse_configure_vars(["CLI_VALUE=abc"]),
+            )
             TopLevelGroupingStrategy("")
             bb = BazelBuild("")
             current = BazelTarget("cc_library", "flow", ".")
@@ -120,5 +175,6 @@ class TestConfigureFile(unittest.TestCase):
         self.assertIn('name = "configure_pregenerated_include_flow_ProtocolVersion_h"', content)
         self.assertIn('":pregenerated/include/flow/ProtocolVersion.h"', content)
         self.assertIn("//contrib/posttreatments:render_configure_file", content)
+        self.assertIn("--var CLI_VALUE=abc", content)
         self.assertIn(":pregenerated/include/flow/ProtocolVersion.h", content)
         self.assertTrue(any(isinstance(target, BazelGenRuleTarget) for target in bb.bazelTargets))

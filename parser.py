@@ -8,7 +8,7 @@ import time
 from typing import Dict, List, Optional
 
 from cc_import_parse import parseCCImports
-from configure_file import parse_configure_files_list
+from configure_file import parse_configure_files_list, parse_configure_vars
 from ninjabuild import genBazelBuildFiles, getBuildTargets
 
 
@@ -107,6 +107,11 @@ def main(argv=None):
         "--configure_files_list",
         help="File containing CMake configure_file(...) lines used to generate pregenerated files",
     )
+    parser.add_argument(
+        "--configure_var",
+        action="append",
+        help="CMake configure_file variable in the form key=value",
+    )
 
     args = parser.parse_args(argv)
 
@@ -170,6 +175,7 @@ def main(argv=None):
         args.configure_files_list,
         rootdir,
         cur_dir,
+        parse_configure_vars(args.configure_var),
     )
     remap = {}
     if args.remap:

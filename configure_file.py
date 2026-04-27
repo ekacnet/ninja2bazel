@@ -15,6 +15,23 @@ class ConfigureFile:
     source: str
     output: str
     value_files: tuple[str, ...]
+    variables: Dict[str, str]
+
+
+def parse_configure_vars(configure_vars: Optional[List[str]]) -> Dict[str, str]:
+    ret: Dict[str, str] = {}
+    for configure_var in configure_vars or []:
+        if "=" not in configure_var:
+            logging.fatal(
+                f"Configure variable {configure_var} is not in the form key=value"
+            )
+            raise SystemExit(-1)
+        key, value = configure_var.split("=", 1)
+        if not key:
+            logging.fatal(f"Configure variable {configure_var} has an empty key")
+            raise SystemExit(-1)
+        ret[key] = value
+    return ret
 
 
 def _normalize_path(path: str) -> str:
@@ -133,6 +150,7 @@ def parse_configure_files_list(
     filename: Optional[str],
     source_dir: str,
     binary_dir: str,
+    configure_vars: Optional[Dict[str, str]] = None,
 ) -> Dict[str, ConfigureFile]:
     if not filename:
         return {}
@@ -150,9 +168,15 @@ def parse_configure_files_list(
         source = _resolve_cmake_path(args[0], source_dir, binary_dir)
         source = _resolve_existing_source(args[0], source_dir, source)
         output = _resolve_cmake_path(args[1], source_dir, binary_dir)
-        placeholders = _find_placeholders(source)
+        variables = configure_vars or {}
+        placeholders = _find_placeholders(source) - set(variables.keys())
         value_files = _find_value_files(source_dir, placeholders, source)
-        entry = ConfigureFile(source=source, output=output, value_files=value_files)
+        entry = ConfigureFile(
+            source=source,
+            output=output,
+            value_files=value_files,
+            variables=variables,
+        )
         ret[_normalize_path(output)] = entry
         ret[_normalize_path(os.path.relpath(output, binary_dir))] = entry
     return ret
