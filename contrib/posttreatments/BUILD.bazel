@@ -4,10 +4,3 @@ py_binary(
     main = "render_protocol_version_header.py",
     visibility = ["//visibility:public"],
 )
-
-py_binary(
-    name = "render_configure_file",
-    srcs = ["render_configure_file.py"],
-    main = "render_configure_file.py",
-    visibility = ["//visibility:public"],
-)

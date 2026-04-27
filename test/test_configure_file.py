@@ -11,7 +11,7 @@ from configure_file import find_configure_file, parse_configure_files_list, pars
 
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-RENDERER = os.path.join(ROOT, "contrib", "posttreatments", "render_configure_file.py")
+RENDERER = os.path.join(ROOT, "tools", "render_configure_file.py")
 
 
 class TestConfigureFile(unittest.TestCase):
@@ -297,7 +297,10 @@ class TestConfigureFile(unittest.TestCase):
         self.assertEqual(content.count("genrule("), 1)
         self.assertIn('name = "configure_pregenerated_include_flow_ProtocolVersion_h"', content)
         self.assertIn('":pregenerated/include/flow/ProtocolVersion.h"', content)
-        self.assertIn("//contrib/posttreatments:render_configure_file", content)
+        self.assertIn('name = "render_configure_file"', content)
+        self.assertIn('":render_configure_file"', content)
+        self.assertIn("$(location :render_configure_file)", content)
+        self.assertIn("$(location ProtocolVersions.cmake) --var", content)
         self.assertIn("--var CLI_VALUE=abc", content)
         self.assertIn(":pregenerated/include/flow/ProtocolVersion.h", content)
         self.assertTrue(any(isinstance(target, BazelGenRuleTarget) for target in bb.bazelTargets))

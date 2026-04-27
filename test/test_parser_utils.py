@@ -1,11 +1,14 @@
 import sys
+import tempfile
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
 from parser import (
     _build_post_treatment_command,
     _configure_vars_from_cli_paths,
+    install_configure_file_tool,
     parse_manually_generated,
     run_post_treatments,
 )
@@ -64,6 +67,14 @@ class TestParserUtils(unittest.TestCase):
         self.assertEqual(values["CMAKE_SOURCE_DIR"], "/override/src")
         self.assertEqual(values["CMAKE_BINARY_DIR"], "/tmp/project/build")
         self.assertEqual(values["CUSTOM"], "yes")
+
+    def test_install_configure_file_tool_copies_bazel_package(self):
+        with tempfile.TemporaryDirectory() as td:
+            install_configure_file_tool(td, ".")
+
+            self.assertTrue(
+                (Path(td) / "bazel" / "tools" / "render_configure_file.py").exists()
+            )
 
     @mock.patch("parser.subprocess.run")
     @mock.patch("parser.os.path.exists", return_value=True)

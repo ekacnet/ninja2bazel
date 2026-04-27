@@ -7,21 +7,11 @@ from enum import Enum
 from functools import total_ordering
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
-from bazel import (
-    BaseBazelTarget,
-    BazelBuild,
-    BazelCCImport,
-    BazelCCProtoLibrary,
-    BazelExternalDep,
-    BazelGenRuleTarget,
-    BazelGenRuleTargetOutput,
-    BazelGRPCCCProtoLibrary,
-    BazelProtoLibrary,
-    BazelTarget,
-    ExportedFile,
-    ShBinaryBazelTarget,
-    getObject,
-)
+from bazel import (BaseBazelTarget, BazelBuild, BazelCCImport,
+                   BazelCCProtoLibrary, BazelExternalDep, BazelGenRuleTarget,
+                   BazelGenRuleTargetOutput, BazelGRPCCCProtoLibrary,
+                   BazelProtoLibrary, BazelTarget, ExportedFile, PyBinaryBazelTarget,
+                   ShBinaryBazelTarget, getObject)
 from configure_file import ConfigureFile, find_configure_file
 from helpers import resolvePath
 from visitor import VisitorContext
@@ -30,6 +20,8 @@ VisitorType = Callable[["BuildTarget", "VisitorContext", bool], bool]
 TargetType = Enum(
     "TargetType", ["other", "unknown", "known", "external", "manually_generated"]
 )
+CONFIGURE_FILE_TOOL_PATH = "bazel/tools/render_configure_file.py"
+CONFIGURE_FILE_TOOL_TARGET = "render_configure_file"
 
 
 def genShBinaryScript(rootdir: str, command: str) -> str:
@@ -553,7 +545,10 @@ class Build:
         )
         if len(genTarget.outs) == 0:
             genTarget.addOut(normalized_output)
-            tool = BazelExternalDep("render_configure_file", "contrib/posttreatments")
+            tool = getObject(PyBinaryBazelTarget, CONFIGURE_FILE_TOOL_TARGET, location)
+            tool.main = CONFIGURE_FILE_TOOL_PATH
+            tool.addSrc(ExportedFile(CONFIGURE_FILE_TOOL_PATH, location))
+            ctx.bazelbuild.bazelTargets.add(tool)
             genTarget.addTool(tool)
 
             source = _relpath_for_bazel(configure_file.source, ctx.rootdir)
@@ -578,15 +573,15 @@ class Build:
                 )
 
             args = [f"$(location {source})", "$@"]
+            args.extend([f"$(location {value_file})" for value_file in value_files])
             args.extend(
                 [
                     f"--var {shlex.quote(f'{key}={value}')}"
                     for key, value in sorted(configure_file.variables.items())
                 ]
             )
-            args.extend([f"$(location {value_file})" for value_file in value_files])
             genTarget.cmd = (
-                "$(location //contrib/posttreatments:render_configure_file) "
+                f"$(location :{CONFIGURE_FILE_TOOL_TARGET}) "
                 + " ".join(args)
             )
             ctx.bazelbuild.bazelTargets.add(genTarget)
