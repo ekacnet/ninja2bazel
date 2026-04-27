@@ -8,6 +8,7 @@ import time
 from typing import Dict, List, Optional
 
 from cc_import_parse import parseCCImports
+from configure_file import parse_configure_files_list
 from ninjabuild import genBazelBuildFiles, getBuildTargets
 
 
@@ -102,6 +103,10 @@ def main(argv=None):
         action="append",
         help="Executable run after each generated BUILD.bazel file; receives the file path to rewrite",
     )
+    parser.add_argument(
+        "--configure_files_list",
+        help="File containing CMake configure_file(...) lines used to generate pregenerated files",
+    )
 
     args = parser.parse_args(argv)
 
@@ -161,6 +166,11 @@ def main(argv=None):
     logging.info("Parsing ninja file and buildTargets")
     if not rootdir.endswith(os.path.sep):
         rootdir = f"{rootdir}{os.path.sep}"
+    configure_files = parse_configure_files_list(
+        args.configure_files_list,
+        rootdir,
+        cur_dir,
+    )
     remap = {}
     if args.remap:
         for e in args.remap:
@@ -186,7 +196,12 @@ def main(argv=None):
     logging.info(f"There are {len(top_levels_targets)} top level targets")
 
     output = genBazelBuildFiles(
-        top_levels_targets, rootdir, prefix, BUILD_CUSTOMIZATION_DIRECTORY
+        top_levels_targets,
+        rootdir,
+        prefix,
+        BUILD_CUSTOMIZATION_DIRECTORY,
+        configure_files,
+        cur_dir,
     )
     end = time.time()
     print(f"Time to generate Bazel's BUILD files: {end - start}", file=sys.stdout)

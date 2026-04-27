@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple, Union
 from bazel import BazelBuild, BazelCCImport
 from build import Build, BuildTarget, Rule, TargetType, TopLevelGroupingStrategy
 from build_visitor import BazelBuildVisitorContext, BuildVisitor, PrintVisitorContext
+from configure_file import ConfigureFile
 from cppfileparser import CPPIncludes, findCPPIncludes, parseIncludes
 from helpers import resolvePath
 from protoparser import findProtoIncludes
@@ -1123,14 +1124,27 @@ def _printNiceDict(d: dict[str, Any]) -> str:
 
 
 def genBazel(
-    buildTarget: BuildTarget, bb: BazelBuild, rootdir: str, flagsToIgnore: List[str]
+    buildTarget: BuildTarget,
+    bb: BazelBuild,
+    rootdir: str,
+    flagsToIgnore: List[str],
+    configure_files: Optional[Dict[str, ConfigureFile]] = None,
+    configure_binary_dir: Optional[str] = None,
 ):
     if rootdir.endswith("/"):
         dir = rootdir
     else:
         dir = f"{rootdir}/"
 
-    ctx = BazelBuildVisitorContext(False, dir, bb, flagsToIgnore, prefix=bb.prefix)
+    ctx = BazelBuildVisitorContext(
+        False,
+        dir,
+        bb,
+        flagsToIgnore,
+        prefix=bb.prefix,
+        configure_files=configure_files,
+        configure_binary_dir=configure_binary_dir,
+    )
 
     visitor = BuildVisitor.getVisitor()
 
@@ -1196,6 +1210,8 @@ def genBazelBuildFiles(
     rootdir: str,
     prefix: str,
     buildCustomizationDirectory: str,
+    configure_files: Optional[Dict[str, ConfigureFile]] = None,
+    configure_binary_dir: Optional[str] = None,
 ) -> Dict[str, str]:
     bb = BazelBuild(prefix)
     if buildCustomizationDirectory.startswith("/"):
@@ -1224,7 +1240,7 @@ def genBazelBuildFiles(
 
     for e in sorted(top_levels):
         e.markTopLevel()
-        genBazel(e, bb, rootdir, flagsToIgnore)
+        genBazel(e, bb, rootdir, flagsToIgnore, configure_files, configure_binary_dir)
 
     bb.cleanup()
 
