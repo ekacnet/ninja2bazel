@@ -2,9 +2,56 @@
 from __future__ import annotations
 
 import argparse
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
+
+
+TRIPLE_QUOTED_STRINGS: set[str] = set()
+
+RULE_ATTR_ORDER: Dict[str, List[str]] = {
+    "cc_library": [
+        "srcs",
+        "hdrs",
+        "copts",
+        "conlyopts",
+        "cxxopts",
+        "defines",
+        "data",
+        "includes",
+        "linkopts",
+        "deps",
+        "visibility",
+    ],
+    "cc_binary": [
+        "srcs",
+        "copts",
+        "conlyopts",
+        "cxxopts",
+        "defines",
+        "data",
+        "includes",
+        "linkopts",
+        "deps",
+        "visibility",
+    ],
+    "cc_test": [
+        "srcs",
+        "copts",
+        "conlyopts",
+        "cxxopts",
+        "defines",
+        "data",
+        "includes",
+        "linkopts",
+        "deps",
+        "visibility",
+    ],
+    "genrule": ["srcs", "outs", "cmd", "local", "tools"],
+    "py_binary": ["srcs", "main"],
+    "sh_binary": ["srcs"],
+}
 
 
 @dataclass
@@ -60,6 +107,19 @@ def select(mapping, **kwargs):
     return {"__fn__": "select", "mapping": mapping, "kwargs": kwargs}
 
 
+def load_lines(build_path: str) -> List[str]:
+    return [
+        line
+        for line in Path(build_path).read_text(encoding="utf-8").splitlines()
+        if line.lstrip().startswith("load(")
+    ]
+
+
+def remember_triple_quoted_strings(source: str) -> None:
+    TRIPLE_QUOTED_STRINGS.clear()
+    TRIPLE_QUOTED_STRINGS.update(re.findall(r'"""(.*?)"""', source, re.DOTALL))
+
+
 def parse_build_with_starlark_pyo3(
     build_path: str,
     *,
@@ -86,6 +146,7 @@ def parse_build_with_starlark_pyo3(
         ]
 
     source = Path(build_path).read_text(encoding="utf-8")
+    remember_triple_quoted_strings(source)
 
     # Dialect: standard Starlark; BUILD files usually need top-level statements.
     dialect = sl.Dialect.standard()
@@ -97,6 +158,11 @@ def parse_build_with_starlark_pyo3(
     recorder = BuildRecorder()
     module = sl.Module()
     glb = sl.Globals.standard()
+    loaded_symbols = {
+        symbol
+        for load in ast.loads()
+        for symbol in load.symbols.values()
+    }
 
     # Provide rule functions that record what they were called with.
     for r in rule_names:
@@ -104,13 +170,17 @@ def parse_build_with_starlark_pyo3(
             r, recorder.rule_fn(r)
         )  # :contentReference[oaicite:3]{index=3}
 
+    loaded_module = sl.Module()
+    for r in loaded_symbols:
+        loaded_module.add_callable(r, recorder.rule_fn(r))
+    loaded_module = loaded_module.freeze()
+
     # Provide common BUILD helpers (symbolic)
     module.add_callable("glob", glob)
     module.add_callable("select", select)
 
     # Evaluate the BUILD file; rule calls will be recorded.
-    # (If your BUILD uses load(), see note below.)
-    sl.eval(module, ast, glb)  # :contentReference[oaicite:4]{index=4}
+    sl.eval(module, ast, glb, sl.FileLoader(lambda _: loaded_module))  # :contentReference[oaicite:4]{index=4}
 
     return recorder.calls
 
@@ -146,9 +216,7 @@ def grafify_rules(raw_rules: List[RuleCall]) -> List[RuleCall]:
                     c.deps.append(all_rules[dep_name])
                     all_rules[dep_name].usedBy.append(c)
                 else:
-                    if missing[dep_name] is None:
-                        missing[dep_name] = []
-                    missing[dep_name].append(c)
+                    missing.setdefault(dep_name, []).append(c)
         if len(remaining_deps) > 0:
             c.attrs["deps"] = remaining_deps
         elif deps is not None:
@@ -174,60 +242,119 @@ def debug_graph(graph: List[RuleCall]):
     for e in graph:
         print_rule(e)
 
+def format_string(val: Any) -> str:
+    if not isinstance(val, str):
+        return str(val)
+    if "\n" in val or val in TRIPLE_QUOTED_STRINGS:
+        return f'"""{val}"""'
+    return f'"{val}"'
+
+
+def sorted_list_values(values: List[Any]) -> List[Any]:
+    return sorted(values, key=format_string)
+
+
+def print_attr(attr: str, val: Any) -> None:
+    if isinstance(val, list):
+        if len(val) == 0:
+            return
+        print(f'    {attr} = [')
+        for v in sorted_list_values(val):
+            print(f'        {format_string(v)},')
+
+        print('    ],')
+    else:
+        print(f'    {attr} = {format_string(val)},')
+
+
+def attrs_for_print(rule: RuleCall) -> Dict[str, Any]:
+    attrs = dict(rule.attrs)
+    deps = list(attrs.get("deps") or [])
+    for dep in rule.deps:
+        name = dep.attrs.get("name")
+        assert isinstance(name, str)
+        dep_label = f":{name}"
+        if dep_label not in deps:
+            deps.append(dep_label)
+    if deps:
+        attrs["deps"] = deps
+    return attrs
+
+
+def print_rule_call(rule: RuleCall, attrs: Optional[List[str]] = None) -> None:
+    printable_attrs = attrs_for_print(rule)
+    print(f"{rule.rule}(")
+    print(f'    name = {format_string(printable_attrs.get("name"))},')
+    attr_names = attrs or ordered_attr_names(rule, printable_attrs)
+    for attr in attr_names:
+        if attr == "name" or attr not in printable_attrs:
+            continue
+        print_attr(attr, printable_attrs[attr])
+    print(")")
+
+
+def ordered_attr_names(rule: RuleCall, attrs: Optional[Dict[str, Any]] = None) -> List[str]:
+    attrs = attrs or rule.attrs
+    preferred = RULE_ATTR_ORDER.get(rule.rule, [])
+    seen = set(preferred)
+    extra_attrs = sorted(
+        attr for attr in attrs if attr not in seen and attr != "name"
+    )
+    return preferred + extra_attrs
+
+
 def print_bazel(rule: RuleCall) -> None:
-    print(f"{rule.rule}(")
-    print(f'     name = "{rule.attrs.get("name")}",')
-    for attr,val in rule.attrs.items():
-        if attr != "name":
-            if isinstance(val, list):
-                if len(val) == 0:
-                    continue
-                print(f'     {attr} = [')
-                for v in val:
-                    print(f'        "{v}",')
+    print_rule_call(rule)
+    if rule.rule == "cc_library":
+        print()
+        print(f"{rule.rule}(")
+        print(f'    name = {format_string(rule.attrs.get("name") + "_hdrs")},')
+        for attr in ["hdrs", "visibility"]:
+            if attr in rule.attrs:
+                print_attr(attr, rule.attrs[attr])
+        print(")")
+    print()
 
-                print('     ],')
-            else:
-                print(f'     {attr} = "{val}",')
-
-    print(")")
-    print(f"{rule.rule}(")
-    print(f'     name = "{rule.attrs.get("name")}_hdrs",')
-    for attr,val in rule.attrs.items():
-        if attr in ["visibility", "hdrs"]:
-            if isinstance(val, list):
-                if len(val) == 0:
-                    continue
-                print(f'     {attr} = [')
-                for v in val:
-                    print(f'        "{v}",')
-
-                print('     ],')
-            else:
-                print(f'     {attr} = "{val}",')
-
-    print(")")
-
-def visit_rule(e: RuleCall, shouldCollapse: bool, callback: Callable[[RuleCall], None]):
+def visit_rule(
+    e: RuleCall,
+    shouldCollapse: bool,
+    callback: Callable[[RuleCall], None],
+    emitted: Optional[set[int]] = None,
+):
     # Here is the logic,
     # When we find a rule that has hidden symbols we start collecting all the srcs, hdrs, copts, ... from the
     # deps that also have hidden symbols
     hasHidden = e.hasHiddenSymbols
+    if emitted is None:
+        emitted = set()
     # Let's copy external deps
     new_deps: List[RuleCall] = []
     for d in e.deps:
-        visit_rule(d, (e.rule == "cc_library" or hasHidden) and d.hasHiddenSymbols, callback)
+        visit_rule(
+            d,
+            (e.rule == "cc_library" or hasHidden) and d.hasHiddenSymbols,
+            callback,
+            emitted,
+        )
         if (e.rule == "cc_library" or hasHidden) and d.hasHiddenSymbols:
             for attr in d.attrs:
                 if attr in ["name", "visibility"]:
                     continue
                 current_attr = e.attrs.get(attr, [])
                 assert isinstance(current_attr, list)
-                current_attr.extend(d.attrs.get(attr, []))
+                if attr not in e.attrs:
+                    e.attrs[attr] = current_attr
+                for val in d.attrs.get(attr, []):
+                    if val not in current_attr:
+                        current_attr.append(val)
+            for dep in d.deps:
+                if not any(existing is dep for existing in new_deps):
+                    new_deps.append(dep)
         else:
             new_deps.append(d)
     e.deps = new_deps
-    if not shouldCollapse:
+    if not shouldCollapse and id(e) not in emitted:
+        emitted.add(id(e))
         callback(e)
 
 
@@ -247,8 +374,8 @@ parent: list attributes such as srcs, hdrs, copts, cxxopts, and deps are copied
 up, while name and visibility are left on the original rule. The collapsed dep
 edge is removed.
 
-The rewritten BUILD content is printed to stdout. For each emitted rule, the
-script also prints a companion rule named "<name>_hdrs" containing only hdrs and
+The rewritten BUILD content is printed to stdout. For each emitted cc_library,
+the script also prints a companion rule named "<name>_hdrs" containing only hdrs and
 visibility. This is useful when generated hidden-symbol libraries need to be
 flattened while still preserving a header-only target shape.
 """
@@ -282,9 +409,16 @@ def main() -> None:
         debug_graph(graph)
         return
 
+    loads = load_lines(args.build_file)
+    for line in loads:
+        print(line)
+    if loads:
+        print()
+
     # Collapse hidden-symbol deps and print the rewritten BUILD content.
+    emitted: set[int] = set()
     for e in graph:
-        visit_rule(e, False, lambda e: print_bazel(e))
+        visit_rule(e, False, lambda e: print_bazel(e), emitted)
 
 
 if __name__ == "__main__":
