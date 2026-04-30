@@ -7,11 +7,22 @@ from enum import Enum
 from functools import total_ordering
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
-from bazel import (BaseBazelTarget, BazelBuild, BazelCCImport,
-                   BazelCCProtoLibrary, BazelExternalDep, BazelGenRuleTarget,
-                   BazelGenRuleTargetOutput, BazelGRPCCCProtoLibrary,
-                   BazelProtoLibrary, BazelTarget, ExportedFile, PyBinaryBazelTarget,
-                   ShBinaryBazelTarget, getObject)
+from bazel import (
+    BaseBazelTarget,
+    BazelBuild,
+    BazelCCImport,
+    BazelCCProtoLibrary,
+    BazelExternalDep,
+    BazelGenRuleTarget,
+    BazelGenRuleTargetOutput,
+    BazelGRPCCCProtoLibrary,
+    BazelProtoLibrary,
+    BazelTarget,
+    ExportedFile,
+    PyBinaryBazelTarget,
+    ShBinaryBazelTarget,
+    getObject,
+)
 from configure_file import ConfigureFile, find_configure_file
 from helpers import resolvePath
 from visitor import VisitorContext
@@ -596,9 +607,8 @@ class Build:
                     for key, value in sorted(configure_file.variables.items())
                 ]
             )
-            genTarget.cmd = (
-                f"$(location :{CONFIGURE_FILE_TOOL_TARGET}) "
-                + " ".join(args)
+            genTarget.cmd = f"$(location :{CONFIGURE_FILE_TOOL_TARGET}) " + " ".join(
+                args
             )
             ctx.bazelbuild.bazelTargets.add(genTarget)
         return next(iter(genTarget.outs))
@@ -1078,8 +1088,25 @@ class Build:
                 + f"{'/'.join(['..' for d in firstOutput.split('/')[:-1]])}"
                 + "/"
             )
+
+            regex = r"^(?:.*/bin/)?python3(?:\.\d+)?$"
+            start_idx = 1
+            script = []
+            script_raw_files = []
+            if re.match(regex, command):
+                command = "python3"
+                if arr[1].endswith(".py"):
+                    start_idx = 2
+                    script.append(f"$(location {arr[1]})")
+                    script_raw_files.append(arr[1])
+            elif command.endswith(".py"):
+                # Replace command by python3 and pass the script as first argument
+                script.append(f"$(location {command})")
+                script_raw_files.append(command)
+                command = "python3"
+
             lastArgIsOption = False
-            for arg in arr[1:]:
+            for arg in arr[start_idx:]:
                 if arg.startswith("-"):
                     # There will be an issue with options that take multiple values ie --foo bar
                     # baz biz
@@ -1167,10 +1194,10 @@ class Build:
             toolBuildTarget.addOut(f"{sanitized_command}_wrapper.sh")
             # Add the sha1 of all inputs to force rebuild if intput file changes
 
-            if (countInput + countRewrote + countOptions) != len(arr[1:]):
+            if (countInput + countRewrote + countOptions) != len(arr[start_idx:]):
                 logging.warn(
                     f"Need to write the function for dealing with non fully rewritten arguments for {el.name}"
-                    f", {countInput}, {countRewrote}, {countOptions} {len(arr[1:])}"
+                    f", {countInput}, {countRewrote}, {countOptions} {len(arr[start_idx:])}"
                 )
             # Make a sh_binary target out of iter
             shBinary = ShBinaryBazelTarget(f"{sanitized_command}_cmd", location)
@@ -1182,14 +1209,20 @@ class Build:
             )
             genTarget.addTool(shBinary)
 
-            # Not sure that it's actually needed
-            # FIXME do not do that for the genrule that create the script that runs generator
             for e in allInputs:
-                genTarget.addSrc(
+                if e not in script_raw_files:
+                    genTarget.addSrc(
+                        self._genExportedFile(
+                            filename=e, locationCaller=genTarget.location, ctx=ctx
+                        )
+                    )
+            for e in script_raw_files:
+                genTarget.addTool(
                     self._genExportedFile(
                         filename=e, locationCaller=genTarget.location, ctx=ctx
                     )
                 )
+
             ctx.bazelbuild.bazelTargets.add(toolBuildTarget)
             ctx.bazelbuild.bazelTargets.add(shBinary)
 
