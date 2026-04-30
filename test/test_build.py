@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from bazel import BazelGenRuleTarget
+from bazel import BazelCCImport, BazelGenRuleTarget
 from bazel import BazelTarget, BazelBuild, getObject, bazelcache
 from build import BazelBuildVisitorContext, Build, BuildTarget, Rule
 from ninjabuild import canBePruned
@@ -108,6 +108,54 @@ class TestBuildUtils(unittest.TestCase):
         self.assertTrue(build._handleCPPCompileCommand(ctx, output))
         self.assertEqual(lib.defines, {'"KEEP"', '"DEF2"'})
         self.assertEqual(lib.copts, {'"-Wall"', '"-funroll"'})
+
+    def test_generated_source_cc_import_deps_are_propagated_to_current_target(self) -> None:
+        bazelbuild = BazelBuild("src/")
+        ctx = BazelBuildVisitorContext(
+            parentIsPhony=False,
+            rootdir="/",
+            bazelbuild=bazelbuild,
+            flagsToIgnore=[],
+            prefix="src",
+        )
+        lib = BazelTarget("cc_library", "lib", "src")
+        ctx.current = lib
+
+        imp = BazelCCImport("boost_filesystem")
+        dep = BuildTarget("boost_filesystem", ("boost_filesystem", None)).setOpaque(imp)
+        generated = BuildTarget("generated.cc", ("generated.cc", None))
+        generated.setDeps([dep])
+
+        Build._propagateGeneratedSourceCCImportDeps(generated, ctx)
+
+        self.assertIn(imp, lib.deps)
+        self.assertIn(imp, bazelbuild.bazelTargets)
+
+    def test_cpp_compile_propagates_cc_import_deps_from_object_target(self) -> None:
+        bazelbuild = BazelBuild("src/")
+        ctx = BazelBuildVisitorContext(
+            parentIsPhony=False,
+            rootdir="/",
+            bazelbuild=bazelbuild,
+            flagsToIgnore=[],
+            prefix="src",
+        )
+        lib = BazelTarget("cc_library", "flow", "src")
+        ctx.current = lib
+
+        imp = BazelCCImport("boost_filesystem")
+        dep = BuildTarget("boost_filesystem", ("boost_filesystem", None)).setOpaque(imp)
+        obj = BuildTarget("flow/CMakeFiles/flow.dir/Platform.actor.g.cpp.o", ("obj.o", None))
+        obj.setDeps([dep])
+        src = BuildTarget("flow/Platform.actor.g.cpp", ("flow/Platform.actor.g.cpp", None)).markAsFile()
+        build = Build([obj], Rule("CXX_COMPILER"), [src], [])
+        build.vars["FLAGS"] = ""
+        build.vars["DEFINES"] = ""
+
+        self.assertTrue(build._handleCPPCompileCommand(ctx, obj))
+
+        self.assertIn(imp, lib.deps)
+        self.assertIn(imp, bazelbuild.bazelTargets)
 
     def test_get_core_command_extracts_run_directory(self) -> None:
         with tempfile.TemporaryDirectory() as td:
