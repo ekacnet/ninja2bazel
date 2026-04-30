@@ -527,6 +527,22 @@ class Build:
                 cls._addAllCCimportDeps(d, ctx)
 
     @classmethod
+    def _propagateGeneratedSourceCCImportDeps(
+        cls,
+        el: "BuildTarget",
+        ctx: BazelBuildVisitorContext,
+    ) -> None:
+        if not isinstance(ctx.current, BazelTarget):
+            return
+
+        for dep in el.depends:
+            imp = getattr(dep, "opaque", None)
+            if not isinstance(imp, BazelCCImport):
+                continue
+            ctx.current.addDep(imp)
+            cls._addAllCCimportDeps(imp, ctx)
+
+    @classmethod
     def _genConfigureFileRule(
         cls,
         ctx: BazelBuildVisitorContext,
@@ -1215,6 +1231,7 @@ class Build:
                     or t.name.endswith(".cpp")
                 ):
                     ctx.current.addSrc(t)
+                    self._propagateGeneratedSourceCCImportDeps(el, ctx)
                     logging.debug(f"Found {t} in {ctx.current.name} CC")
                     self._handleIncludeBazelTarget(el, ctx, workDir)
                 else:
@@ -1488,6 +1505,7 @@ class Build:
             # Usually when it's none it's because we have pseudo targets
             return True
         assert isinstance(ctx.current, BazelTarget)
+        self._propagateGeneratedSourceCCImportDeps(el, ctx)
         build = el.producedby
         assert build is not None
 
