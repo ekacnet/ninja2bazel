@@ -822,7 +822,12 @@ class Build:
                 )
             if not isinstance(exported, BazelGenRuleTargetOutput):
                 ctx.bazelbuild.bazelTargets.add(exported)
-            ctx.current.addSrc(exported)
+
+            if not isinstance(ctx.current, BazelGenRuleTarget):
+                # Do not add sources for genRule targets as we already have done that before
+                # this is at best redundant and at worse wrong as some sources might be actually
+                # tools
+                ctx.current.addSrc(exported)
 
             if el.includes is None:
                 return
