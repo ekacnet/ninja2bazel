@@ -33,6 +33,7 @@ TargetType = Enum(
 )
 CONFIGURE_FILE_TOOL_PATH = "bazel/tools/render_configure_file.py"
 CONFIGURE_FILE_TOOL_TARGET = "render_configure_file"
+CPP_SOURCE_EXTENSIONS = (".c", ".cc", ".cpp", ".s", ".S")
 
 
 def genShBinaryScript(rootdir: str, command: str) -> str:
@@ -1263,11 +1264,7 @@ class Build:
                         ctx.current.addHdr(t)
                 # The current buildTarget is a C/C++ file it means that the current build (ie. binary/test/lib)
                 # has it as input, so we add it as a src to the current bazelTarget
-                elif (
-                    t.name.endswith(".c")
-                    or t.name.endswith(".cc")
-                    or t.name.endswith(".cpp")
-                ):
+                elif t.name.endswith(CPP_SOURCE_EXTENSIONS):
                     ctx.current.addSrc(t)
                     self._propagateGeneratedSourceCCImportDeps(el, ctx)
                     logging.debug(f"Found {t} in {ctx.current.name} CC")

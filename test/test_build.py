@@ -251,6 +251,30 @@ class TestBuildFeatures(unittest.TestCase):
         self.assertIn("$(location :out2.txt)", gen.cmd)
         self.assertEqual(gen.aliases.get("out1.txt"), "alias/out1.txt")
 
+    def test_generated_assembly_output_is_added_as_source(self) -> None:
+        out = BuildTarget("bindings/c/fdb_c.g.S", ("bindings/c/fdb_c.g.S", None))
+        build = Build([out], Rule("CUSTOM_COMMAND"), [], [])
+        gen = BazelGenRuleTarget("generate_fdb_c_asm", ".")
+        gen.addOut("bindings/c/fdb_c.g.S")
+        build.associatedBazelTarget = gen
+
+        lib = BazelTarget("cc_library", "fdb_c", ".")
+        bazelbuild = BazelBuild("")
+        ctx = BazelBuildVisitorContext(
+            parentIsPhony=False,
+            rootdir="/root",
+            bazelbuild=bazelbuild,
+            flagsToIgnore=[],
+            current=lib,
+            prefix="",
+        )
+
+        build._handleCustomCommandForBazelGen(ctx, out, "tool bindings/c/fdb_c.g.S")
+
+        generated_src = next(iter(gen.outs))
+        self.assertIn(generated_src, lib.srcs)
+        self.assertNotIn(generated_src, lib.data)
+
     def setUp(self) -> None:
         bazelcache.clear()
 
