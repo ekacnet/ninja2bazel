@@ -1172,17 +1172,6 @@ class Build:
                         logging.info(f"{arg} not found in the output hope it's ok")
                     alteredArgs.append(arg)
 
-            regex = r"^.*/bin/python3(?:\.\d+)?$"
-            if re.match(regex, command):
-                command = "python3"
-
-            script = []
-
-            if command.endswith(".py"):
-                # Replace command by python3 and pass the script as first argument
-                script.append(f"$(location {command})")
-                command = "python3"
-
             # In theory it would be a good idea to not have to genbuild the script that will be used
             # by the sh_binary
             # toolBuildTarget is a genrule() rule for building the wrapper around the command that
