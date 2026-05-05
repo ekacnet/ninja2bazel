@@ -1340,7 +1340,8 @@ class Build:
         for tgt in ctx.bazelbuild.bazelTargets:
             if tgt.name == f"{proto}_cc_proto":
                 t.addDep(tgt)
-        ctx.current.addDep(t)
+        if not isinstance(ctx.current, (BazelCCProtoLibrary, BazelGRPCCCProtoLibrary)):
+            ctx.current.addDep(t)
         ctx.next_current = t
         ctx.current = t
 
@@ -1355,7 +1356,8 @@ class Build:
         t: BaseBazelTarget = getObject(
             BazelCCProtoLibrary, f"{proto}_cc_proto", location
         )
-        ctx.current.addDep(t)
+        if not isinstance(ctx.current, BazelCCProtoLibrary):
+            ctx.current.addDep(t)
         ctx.bazelbuild.bazelTargets.add(t)
         for tgt in ctx.bazelbuild.bazelTargets:
             if tgt.name == f"{proto}_cc_grpc":
