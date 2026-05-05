@@ -452,6 +452,13 @@ class Build:
 
         self.vars: Dict[str, str] = {}
 
+    def detach(self) -> None:
+        for target in list(self._inputs) + list(self.depends):
+            target.usedbybuilds = [build for build in target.usedbybuilds if build is not self]
+        for output in self.outputs:
+            if output.producedby is self:
+                output.producedby = None
+
     def getInputs(self) -> List[BuildTarget]:
         return self._inputs
 
@@ -1784,13 +1791,32 @@ class Build:
         return None
 
     def getGeneratorCommands(self) -> List[Tuple[str, Optional[str]]]:
+        commands = []
+        for group in self.getGeneratorCommandGroups():
+            commands.extend(group)
+        return commands
+
+    def getGeneratorCommandsForTarget(
+        self, target: BuildTarget
+    ) -> List[Tuple[str, Optional[str]]]:
+        command_groups = self.getGeneratorCommandGroups()
+        if len(command_groups) == 0:
+            return []
+
+        workDir = self.vars.get("cmake_ninja_workdir", "")
+        for command_group in command_groups:
+            if self._commandGroupMentionsTarget(command_group, target, workDir):
+                return command_group
+        return []
+
+    def getGeneratorCommandGroups(self) -> List[List[Tuple[str, Optional[str]]]]:
         command = self.rulename.vars.get("command")
         if command is None:
             return []
         command = self._resolveName(command, ["in", "out", "TARGET_FILE"])
         workDir = self.vars.get("cmake_ninja_workdir", "")
         runDir = None
-        commands = []
+        command_groups = []
         pending_setup_commands = []
 
         for raw_cmd in command.split("&&"):
@@ -1808,10 +1834,63 @@ class Build:
                 continue
             if not self._isGeneratorCommand(cmd, workDir):
                 continue
-            commands.extend(pending_setup_commands)
+            command_group = pending_setup_commands + [(cmd, runDir)]
             pending_setup_commands = []
-            commands.append((cmd, runDir))
-        return commands
+            command_groups.append(command_group)
+        return command_groups
+
+    def splitByGeneratorCommands(self) -> List["Build"]:
+        if self.rulename.name != "CUSTOM_COMMAND" or len(self.outputs) <= 1:
+            return [self]
+
+        command_groups = self.getGeneratorCommandGroups()
+        if len(command_groups) <= 1:
+            return [self]
+
+        workDir = self.vars.get("cmake_ninja_workdir", "")
+        remaining_outputs = set(self.outputs)
+        assignments: List[Tuple[List[Tuple[str, Optional[str]]], List[BuildTarget]]] = []
+
+        for command_group in command_groups:
+            candidate_outputs = [
+                output
+                for output in self.outputs
+                if output in remaining_outputs
+                and self._commandGroupMentionsTarget(command_group, output, workDir)
+            ]
+            if len(candidate_outputs) == 0:
+                continue
+            for output in candidate_outputs:
+                remaining_outputs.remove(output)
+            assignments.append((command_group, candidate_outputs))
+
+        if len(remaining_outputs) != 0 or len(assignments) <= 1:
+            return [self]
+
+        split_builds = []
+        for command_group, outputs in assignments:
+            split_rule = Rule(self.rulename.name)
+            split_rule.vars = dict(self.rulename.vars)
+            split_rule.vars["command"] = self._formatGeneratorCommandGroup(
+                command_group, workDir
+            )
+
+            split_inputs = list(self._inputs)
+            for output in self.outputs:
+                if output in outputs:
+                    continue
+                if (
+                    self._commandGroupMentionsTarget(command_group, output, workDir)
+                    and output not in split_inputs
+                ):
+                    split_inputs.append(output)
+
+            split_build = Build(outputs, split_rule, split_inputs, self.depends)
+            split_build.vars.update(self.vars)
+            split_build.vars["COMMAND"] = split_rule.vars["command"]
+            split_builds.append(split_build)
+
+        return split_builds
 
     def _getRunDir(self, path: str, workDir: str) -> str:
         if workDir != "":
@@ -1843,12 +1922,73 @@ class Build:
     def _isGeneratorCommand(self, cmd: str, workDir: str) -> bool:
         if self.rulename.name != "CUSTOM_COMMAND":
             return False
-        candidates = []
         for target in list(self._inputs) + list(self.outputs):
-            candidates.append(target.name)
-            if workDir != "" and not target.name.startswith(os.path.sep):
-                candidates.append(f"{workDir}{target.name}")
-        return any(candidate != "" and candidate in cmd for candidate in candidates)
+            if self._commandMentionsTarget(cmd, target, workDir):
+                return True
+        return False
+
+    def _commandGroupMentionsTarget(
+        self,
+        command_group: List[Tuple[str, Optional[str]]],
+        target: BuildTarget,
+        workDir: str,
+    ) -> bool:
+        return any(
+            self._commandMentionsTarget(cmd, target, workDir)
+            for cmd, _ in command_group
+        )
+
+    def _commandMentionsTarget(self, cmd: str, target: BuildTarget, workDir: str) -> bool:
+        candidates = set(self._targetCommandCandidates(target, workDir))
+        return any(value in candidates for value in self._commandTargetValues(cmd))
+
+    def _commandTargetValues(self, cmd: str) -> List[str]:
+        try:
+            parts = shlex.split(cmd)
+        except ValueError:
+            parts = cmd.split()
+
+        values = []
+        for part in parts:
+            values.append(part)
+            if "=" in part:
+                values.append(part.split("=", 1)[1])
+        return values
+
+    def _targetCommandCandidates(self, target: BuildTarget, workDir: str) -> List[str]:
+        candidates = [target.name, target.shortName]
+        if workDir != "":
+            normalizedWorkDir = workDir
+            if not normalizedWorkDir.endswith(os.path.sep):
+                normalizedWorkDir = f"{normalizedWorkDir}{os.path.sep}"
+            if target.name.startswith(normalizedWorkDir):
+                candidates.append(target.name[len(normalizedWorkDir) :])
+            for candidate in list(candidates):
+                if not candidate.startswith(os.path.sep):
+                    candidates.append(f"{normalizedWorkDir}{candidate}")
+        return candidates
+
+    def _formatGeneratorCommandGroup(
+        self,
+        command_group: List[Tuple[str, Optional[str]]],
+        workDir: str,
+    ) -> str:
+        parts = []
+        current_run_dir = None
+        for cmd, runDir in command_group:
+            if runDir != current_run_dir:
+                current_run_dir = runDir
+                if runDir is not None:
+                    parts.append(f"cd {self._expandRunDir(runDir, workDir)}")
+            parts.append(cmd)
+        return " && ".join(parts)
+
+    def _expandRunDir(self, runDir: str, workDir: str) -> str:
+        if runDir == "":
+            return workDir.rstrip(os.path.sep)
+        if os.path.isabs(runDir) or workDir == "":
+            return runDir
+        return os.path.join(workDir, runDir)
 
     def _resolveName(self, name: str, exceptVars: Optional[List[str]] = None) -> str:
         regex = r"\$\{?([\w+]+)\}?"

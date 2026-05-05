@@ -214,6 +214,83 @@ class TestBuildUtils(unittest.TestCase):
             self.assertEqual(["flow", "flow", "flow"], [run_dir for _, run_dir in commands])
             self.assertTrue(all(str(script) in cmd for cmd, _ in commands))
 
+    def test_get_generator_commands_for_target_selects_matching_command(self) -> None:
+        work_dir = "/tmp/build/"
+        out_a = BuildTarget("generated/a.txt", ("a.txt", None))
+        out_b = BuildTarget("generated/b.txt", ("b.txt", None))
+        rule = Rule("CUSTOM_COMMAND")
+        build = Build([out_a, out_b], rule, [], [])
+        build.vars["cmake_ninja_workdir"] = work_dir
+        rule.vars["command"] = (
+            "python3 gen.py --output /tmp/build/generated/a.txt && "
+            "python3 gen.py --generated-file=/tmp/build/generated/b.txt"
+        )
+
+        commands = build.getGeneratorCommandsForTarget(out_b)
+
+        self.assertEqual(
+            [("python3 gen.py --generated-file=/tmp/build/generated/b.txt", None)],
+            commands,
+        )
+
+    def test_get_generator_commands_for_target_ignores_template_basename(self) -> None:
+        work_dir = "/tmp/build/"
+        template = BuildTarget(
+            "/src/flow/protocolversion/ProtocolVersion.h.template",
+            ("ProtocolVersion.h.template", None),
+        ).markAsFile()
+        source = BuildTarget(
+            "/src/flow/ProtocolVersions.cmake",
+            ("ProtocolVersions.cmake", None),
+        ).markAsFile()
+        out = BuildTarget("flow/include/flow/ProtocolVersion.h", ("ProtocolVersion.h", None))
+        rule = Rule("CUSTOM_COMMAND")
+        build = Build([out], rule, [template, source], [])
+        build.vars["cmake_ninja_workdir"] = work_dir
+        rule.vars["command"] = (
+            "cd /tmp/build/flow && "
+            "python3 /src/flow/protocolversion/protocol_version.py "
+            "--source /src/flow/ProtocolVersions.cmake --generator cpp "
+            "--output /tmp/build/flow/include/flow/ProtocolVersion.h && "
+            "python3 /src/flow/protocolversion/protocol_version.py "
+            "/src/flow/protocolversion/ProtocolVersion.h.template "
+            "--source /src/flow/ProtocolVersions.cmake --generator python "
+            "--output /tmp/build/flow/include/flow/protocol_version.py"
+        )
+
+        commands = build.getGeneratorCommandsForTarget(out)
+
+        self.assertEqual(1, len(commands))
+        self.assertIn("--generator cpp", commands[0][0])
+        self.assertIn("ProtocolVersion.h", commands[0][0])
+        self.assertNotIn("--generator python", commands[0][0])
+        self.assertNotIn("--output /tmp/build/flow/include/flow/protocol_version.py", commands[0][0])
+
+    def test_split_by_generator_commands_assigns_outputs_to_commands(self) -> None:
+        work_dir = "/tmp/build/"
+        source = BuildTarget("input.txt", ("input.txt", None)).markAsFile()
+        out_a = BuildTarget("generated/a.txt", ("a.txt", None))
+        out_b = BuildTarget("generated/b.txt", ("b.txt", None))
+        rule = Rule("CUSTOM_COMMAND")
+        build = Build([out_a, out_b], rule, [source], [])
+        build.vars["cmake_ninja_workdir"] = work_dir
+        rule.vars["command"] = (
+            "python3 gen.py input.txt --output /tmp/build/generated/a.txt && "
+            "python3 gen.py /tmp/build/generated/a.txt --output /tmp/build/generated/b.txt"
+        )
+
+        split_builds = build.splitByGeneratorCommands()
+
+        self.assertEqual(
+            [["generated/a.txt"], ["generated/b.txt"]],
+            [[o.name for o in b.outputs] for b in split_builds],
+        )
+        self.assertEqual(
+            "python3 gen.py /tmp/build/generated/a.txt --output /tmp/build/generated/b.txt",
+            split_builds[1].rulename.vars["command"],
+        )
+        self.assertIn(out_a, split_builds[1].getInputs())
+
     def test_get_generator_commands_excludes_copy_and_cmake_commands(self) -> None:
         cases = [
             "cp input.txt generated.txt",

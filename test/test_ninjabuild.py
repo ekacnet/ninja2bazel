@@ -120,7 +120,38 @@ class TestNinjaParserHelpers(unittest.TestCase):
         resolved = parser._resolveName("${FOO}", {"FOO": "override"})
         self.assertEqual(resolved, "override")
 
-    def test_execute_generator_runs_all_generator_commands_after_cd(self) -> None:
+    def test_parser_splits_custom_command_outputs_by_generator_command(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            build_file = Path(td) / "build.ninja"
+            build_file.write_text(
+                "rule CUSTOM_COMMAND\n"
+                "  command = $COMMAND\n"
+                "\n"
+                "build generated/a.txt generated/b.txt: CUSTOM_COMMAND\n"
+                "  COMMAND = python3 gen.py --output generated/a.txt && "
+                "python3 gen.py generated/a.txt --output generated/b.txt\n"
+            )
+
+            parser = NinjaParser(td)
+            parser.setManuallyGeneratedTargets({})
+            parser.setContext("ctx")
+            parser.vars["ctx"]["cmake_ninja_workdir"] = f"{td}/"
+            parser.setRemapPath({})
+            parser.setCompilerIncludes([])
+            parser.setCCImports([])
+            parser.parse(build_file.read_text().splitlines(), td)
+            parser.markDone()
+            parser.endContext("ctx")
+
+            producer_a = parser.all_outputs["generated/a.txt"].producedby
+            producer_b = parser.all_outputs["generated/b.txt"].producedby
+
+            self.assertIsNot(producer_a, producer_b)
+            self.assertEqual(["generated/a.txt"], [output.name for output in producer_a.outputs])
+            self.assertEqual(["generated/b.txt"], [output.name for output in producer_b.outputs])
+            self.assertIn(parser.all_outputs["generated/a.txt"], producer_b.getInputs())
+
+    def test_execute_generator_runs_only_target_generator_command_after_cd(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             tmp_path = Path(td)
             work_dir = tmp_path / "build"
@@ -173,7 +204,41 @@ class TestNinjaParserHelpers(unittest.TestCase):
                 "cpp",
                 (temp_dir / "flow/include/flow/ProtocolVersion.h").read_text(),
             )
-            self.assertEqual(
-                "java",
-                (temp_dir / "flow/include/flow/ProtocolVersion.java").read_text(),
+            self.assertFalse(
+                (temp_dir / "flow/include/flow/ProtocolVersion.java").exists(),
             )
+
+    def test_execute_generator_for_split_build_runs_only_its_command(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            tmp_path = Path(td)
+            work_dir = tmp_path / "build"
+            script = tmp_path / "gen.py"
+            script.write_text(
+                "import argparse\n"
+                "from pathlib import Path\n"
+                "parser = argparse.ArgumentParser()\n"
+                "parser.add_argument('--value')\n"
+                "parser.add_argument('--output')\n"
+                "args = parser.parse_args()\n"
+                "output = Path(args.output)\n"
+                "output.parent.mkdir(parents=True, exist_ok=True)\n"
+                "output.write_text(args.value)\n"
+            )
+
+            parser = NinjaParser(str(tmp_path))
+            rule = Rule("CUSTOM_COMMAND")
+            out_a = BuildTarget("generated/a.txt", ("a.txt", None))
+            out_b = BuildTarget("generated/b.txt", ("b.txt", None))
+            build = Build([out_a, out_b], rule, [], [])
+            build.vars["cmake_ninja_workdir"] = f"{work_dir}/"
+            rule.vars["command"] = (
+                f"{sys.executable} {script} --value a --output {work_dir}/generated/a.txt && "
+                f"{sys.executable} {script} --value b --output {work_dir}/generated/b.txt"
+            )
+            split_builds = build.splitByGeneratorCommands()
+            target_build = split_builds[1]
+
+            temp_dir = Path(parser.executeGenerator(target_build, out_b))
+
+            self.assertFalse((temp_dir / "generated/a.txt").exists())
+            self.assertEqual("b", (temp_dir / "generated/b.txt").read_text())

@@ -423,7 +423,10 @@ class NinjaParser:
         build.vars.update(build.rulename.vars)
         build.vars.update(vars)
 
-        self.buildEdges.append(build)
+        split_builds = build.splitByGeneratorCommands()
+        if len(split_builds) != 1 or split_builds[0] is not build:
+            build.detach()
+        self.buildEdges.extend(split_builds)
 
     def handleVariable(self, name: str, value: str):
         self.vars[self.currentContext][name] = value
@@ -449,7 +452,7 @@ class NinjaParser:
         for o in build.outputs:
             outputs.add(o.name.replace(workDir, ""))
 
-        generatorCommands = build.getGeneratorCommands()
+        generatorCommands = build.getGeneratorCommandsForTarget(target)
         if len(generatorCommands) == 0:
             coreRet = build.getCoreCommand()
             if coreRet is not None:
