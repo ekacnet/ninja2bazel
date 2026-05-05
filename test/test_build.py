@@ -5,7 +5,12 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from bazel import BazelCCImport, BazelGenRuleTarget
+from bazel import (
+    BazelCCImport,
+    BazelCCProtoLibrary,
+    BazelGenRuleTarget,
+    BazelGRPCCCProtoLibrary,
+)
 from bazel import BazelTarget, BazelBuild, getObject, bazelcache
 from build import BazelBuildVisitorContext, Build, BuildTarget, Rule
 from ninjabuild import canBePruned
@@ -425,6 +430,34 @@ class TestBuildProtoAndLinkHandling(unittest.TestCase):
         self.assertIs(ctx.current, kept)
         self.assertIs(ctx.next_current, kept)
         self.assertGreater(len(kept.deps), 0)  # type: ignore
+
+    def test_handle_grpc_protobuf_header_keeps_current_grpc_context(self) -> None:
+        ctx = self._ctx()
+        current = BazelGRPCCCProtoLibrary("foo_cc_grpc", "proto")
+        ctx.current = current
+        out = BuildTarget("foo.grpc.pb.h", ("foo.grpc.pb.h", "proto"))
+        build = Build([out], Rule("CUSTOM_COMMAND"), [], [])
+        build.vars["COMMAND"] = "/usr/bin/bin/protoc something"
+
+        self.assertTrue(build.handleRuleProducedForBazelGen(ctx, out, "cmd"))
+
+        self.assertIs(ctx.current, current)
+        self.assertIs(ctx.next_current, current)
+        self.assertNotIn(current, current.deps)
+
+    def test_handle_protobuf_header_keeps_current_cc_proto_context(self) -> None:
+        ctx = self._ctx()
+        current = BazelCCProtoLibrary("foo_cc_proto", "proto")
+        ctx.current = current
+        out = BuildTarget("foo.pb.h", ("foo.pb.h", "proto"))
+        build = Build([out], Rule("CUSTOM_COMMAND"), [], [])
+        build.vars["COMMAND"] = "/usr/bin/bin/protoc something"
+
+        self.assertTrue(build.handleRuleProducedForBazelGen(ctx, out, "cmd"))
+
+        self.assertIs(ctx.current, current)
+        self.assertIs(ctx.next_current, current)
+        self.assertNotIn(current, current.deps)
 
     def test_revisit_shared_library_reuses_existing_target(self) -> None:
         ctx = self._ctx()
