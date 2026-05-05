@@ -172,6 +172,74 @@ class TestBuildUtils(unittest.TestCase):
             self.assertTrue(cmd.strip().startswith("gcc -c"))
             self.assertEqual(run_dir, "/build")
 
+    def test_get_generator_commands_extracts_all_commands_with_run_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            tmp_path = Path(td)
+            work_dir = tmp_path / "build"
+            script = tmp_path / "protocol_version.py"
+            source = tmp_path / "ProtocolVersions.cmake"
+            template = tmp_path / "ProtocolVersion.h.template"
+            out = BuildTarget("flow/include/flow/ProtocolVersion.h", ("ProtocolVersion.h", None))
+            rule = Rule("CUSTOM_COMMAND")
+            build = Build(
+                [out],
+                rule,
+                [
+                    BuildTarget(str(script), (script.name, None)),
+                    BuildTarget(str(template), (template.name, None)),
+                    BuildTarget(str(source), (source.name, None)),
+                ],
+                [],
+            )
+            build.vars["cmake_ninja_workdir"] = f"{work_dir}/"
+            rule.vars["command"] = (
+                f"cd {work_dir}/flow && "
+                f"python3 {script} --source {source} --generator cpp "
+                f"--output {work_dir}/flow/include/flow/ProtocolVersion.h && "
+                f"python3 {script} --source {source} --generator java "
+                f"--output {work_dir}/flow/include/flow/ProtocolVersion.java && "
+                f"python3 {script} --source {source} --generator python "
+                f"--output {work_dir}/flow/include/flow/protocol_version.py"
+            )
+
+            commands = build.getGeneratorCommands()
+
+            self.assertEqual(3, len(commands))
+            self.assertEqual(["flow", "flow", "flow"], [run_dir for _, run_dir in commands])
+            self.assertTrue(all(str(script) in cmd for cmd, _ in commands))
+
+    def test_get_generator_commands_excludes_copy_and_cmake_commands(self) -> None:
+        cases = [
+            "cp input.txt generated.txt",
+            "/bin/cp input.txt generated.txt",
+            "/usr/bin/cmake -E copy input.txt generated.txt",
+            "/opt/bin/cmake -E copy input.txt generated.txt",
+        ]
+        for command in cases:
+            with self.subTest(command=command):
+                inp = BuildTarget("input.txt", ("input.txt", None)).markAsFile()
+                out = BuildTarget("generated.txt", ("generated.txt", None))
+                rule = Rule("CUSTOM_COMMAND")
+                build = Build([out], rule, [inp], [])
+                rule.vars["command"] = command
+
+                self.assertEqual([], build.getGeneratorCommands())
+
+    def test_get_generator_commands_does_not_reuse_setup_for_excluded_command(self) -> None:
+        inp = BuildTarget("input.txt", ("input.txt", None)).markAsFile()
+        out = BuildTarget("generated.txt", ("generated.txt", None))
+        rule = Rule("CUSTOM_COMMAND")
+        build = Build([out], rule, [inp], [])
+        rule.vars["command"] = (
+            "mkdir copied && cp input.txt copied/generated.txt && "
+            "python3 gen.py input.txt generated.txt"
+        )
+
+        self.assertEqual(
+            [("python3 gen.py input.txt generated.txt", None)],
+            build.getGeneratorCommands(),
+        )
+
     def test_is_cpp_command(self) -> None:
         cases = [
             ("clang -c foo.c", True),

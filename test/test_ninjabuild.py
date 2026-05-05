@@ -1,4 +1,5 @@
 import os
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -118,3 +119,61 @@ class TestNinjaParserHelpers(unittest.TestCase):
         parser.vars["ctx"]["cmake_ninja_workdir"] = "/root"
         resolved = parser._resolveName("${FOO}", {"FOO": "override"})
         self.assertEqual(resolved, "override")
+
+    def test_execute_generator_runs_all_generator_commands_after_cd(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            tmp_path = Path(td)
+            work_dir = tmp_path / "build"
+            source = tmp_path / "ProtocolVersions.cmake"
+            source.write_text("version")
+            script = tmp_path / "protocol_version.py"
+            script.write_text(
+                "import argparse\n"
+                "from pathlib import Path\n"
+                "parser = argparse.ArgumentParser()\n"
+                "parser.add_argument('--source')\n"
+                "parser.add_argument('--generator')\n"
+                "parser.add_argument('--output')\n"
+                "args = parser.parse_args()\n"
+                "output = Path(args.output)\n"
+                "output.parent.mkdir(parents=True, exist_ok=True)\n"
+                "output.write_text(args.generator)\n"
+            )
+            template = tmp_path / "ProtocolVersion.h.template"
+            template.write_text("template")
+
+            parser = NinjaParser(str(tmp_path))
+            rule = Rule("CUSTOM_COMMAND")
+            output = BuildTarget(
+                "flow/include/flow/ProtocolVersion.h",
+                ("ProtocolVersion.h", None),
+            )
+            build = Build(
+                [output],
+                rule,
+                [
+                    BuildTarget(str(script), (script.name, None)),
+                    BuildTarget(str(template), (template.name, None)),
+                    BuildTarget(str(source), (source.name, None)),
+                ],
+                [],
+            )
+            build.vars["cmake_ninja_workdir"] = f"{work_dir}/"
+            rule.vars["command"] = (
+                f"cd {work_dir}/flow && "
+                f"{sys.executable} {script} --source {source} --generator cpp "
+                f"--output {work_dir}/flow/include/flow/ProtocolVersion.h && "
+                f"{sys.executable} {script} --source {source} --generator java "
+                f"--output {work_dir}/flow/include/flow/ProtocolVersion.java"
+            )
+
+            temp_dir = Path(parser.executeGenerator(build, output))
+
+            self.assertEqual(
+                "cpp",
+                (temp_dir / "flow/include/flow/ProtocolVersion.h").read_text(),
+            )
+            self.assertEqual(
+                "java",
+                (temp_dir / "flow/include/flow/ProtocolVersion.java").read_text(),
+            )

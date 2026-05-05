@@ -1677,6 +1677,73 @@ class Build:
             return (cmd, runDir)
         return None
 
+    def getGeneratorCommands(self) -> List[Tuple[str, Optional[str]]]:
+        command = self.rulename.vars.get("command")
+        if command is None:
+            return []
+        command = self._resolveName(command, ["in", "out", "TARGET_FILE"])
+        workDir = self.vars.get("cmake_ninja_workdir", "")
+        runDir = None
+        commands = []
+        pending_setup_commands = []
+
+        for raw_cmd in command.split("&&"):
+            cmd = raw_cmd.strip()
+            if cmd == "":
+                continue
+            if cmd.startswith("cd "):
+                runDir = self._getRunDir(cmd[3:].strip(), workDir)
+                continue
+            if self._isExcludedGeneratorCommand(cmd):
+                pending_setup_commands = []
+                continue
+            if self._isGeneratorSetupCommand(cmd):
+                pending_setup_commands.append((cmd, runDir))
+                continue
+            if not self._isGeneratorCommand(cmd, workDir):
+                continue
+            commands.extend(pending_setup_commands)
+            pending_setup_commands = []
+            commands.append((cmd, runDir))
+        return commands
+
+    def _getRunDir(self, path: str, workDir: str) -> str:
+        if workDir != "":
+            normalizedWorkDir = workDir
+            if not normalizedWorkDir.endswith(os.path.sep):
+                normalizedWorkDir = f"{normalizedWorkDir}{os.path.sep}"
+            if path.startswith(normalizedWorkDir):
+                return path[len(normalizedWorkDir) :]
+            if path == workDir.rstrip(os.path.sep):
+                return ""
+        return path
+
+    def _isGeneratorSetupCommand(self, cmd: str) -> bool:
+        if cmd.startswith("mkdir "):
+            return True
+        return "cmake -E make_directory" in cmd
+
+    def _isExcludedGeneratorCommand(self, cmd: str) -> bool:
+        if "/bin/cmake" in cmd:
+            return True
+        try:
+            parts = shlex.split(cmd)
+        except ValueError:
+            return False
+        if len(parts) == 0:
+            return False
+        return os.path.basename(parts[0]) == "cp"
+
+    def _isGeneratorCommand(self, cmd: str, workDir: str) -> bool:
+        if self.rulename.name != "CUSTOM_COMMAND":
+            return False
+        candidates = []
+        for target in list(self._inputs) + list(self.outputs):
+            candidates.append(target.name)
+            if workDir != "" and not target.name.startswith(os.path.sep):
+                candidates.append(f"{workDir}{target.name}")
+        return any(candidate != "" and candidate in cmd for candidate in candidates)
+
     def _resolveName(self, name: str, exceptVars: Optional[List[str]] = None) -> str:
         regex = r"\$\{?([\w+]+)\}?"
 
