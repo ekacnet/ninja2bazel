@@ -32,7 +32,6 @@ RULES_CC_SYMBOLS = (
     "cc_binary",
     "cc_import",
     "cc_library",
-    "cc_proto_library",
     "cc_shared_library",
     "cc_test",
 )
@@ -990,7 +989,7 @@ class BazelCCProtoLibrary(BaseBazelTarget):
         super().__init__("cc_proto_library", name, location)
 
     def getGlobalImport(self) -> str:
-        return _format_rules_cc_load({"cc_proto_library"})
+        return 'load("@com_google_protobuf//bazel:cc_proto_library.bzl", "cc_proto_library")'
 
     def addDep(self, dep: Union[BaseBazelTarget, BazelCCImport]):
         assert isinstance(dep, BazelProtoLibrary) or isinstance(dep, BazelExternalDep)

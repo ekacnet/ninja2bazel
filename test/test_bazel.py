@@ -57,7 +57,7 @@ class TestBazelTarget(unittest.TestCase):
         )
         self.assertEqual(
             BazelCCProtoLibrary("proto_cc", "src").getGlobalImport(),
-            'load("@rules_cc//cc:defs.bzl", "cc_proto_library")',
+            'load("@com_google_protobuf//bazel:cc_proto_library.bzl", "cc_proto_library")',
         )
 
     def test_py_and_sh_targets_emit_explicit_loads(self):
@@ -203,7 +203,11 @@ class TestBazelGen(unittest.TestCase):
         self.assertIn("foo_proto_cc_grpc", src_content)
         self.assertIn("generated.h", src_content)
         self.assertIn(
-            'load("@rules_cc//cc:defs.bzl", "cc_library", "cc_proto_library")',
+            'load("@rules_cc//cc:defs.bzl", "cc_library")',
+            src_content,
+        )
+        self.assertIn(
+            'load("@com_google_protobuf//bazel:cc_proto_library.bzl", "cc_proto_library")',
             src_content,
         )
         self.assertNotIn('"cc_binary"', src_content)
