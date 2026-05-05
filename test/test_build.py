@@ -10,6 +10,7 @@ from bazel import (
     BazelCCProtoLibrary,
     BazelGenRuleTarget,
     BazelGRPCCCProtoLibrary,
+    BazelProtoLibrary,
 )
 from bazel import BazelTarget, BazelBuild, getObject, bazelcache
 from build import BazelBuildVisitorContext, Build, BuildTarget, Rule
@@ -413,6 +414,7 @@ class TestBuildFeatures(unittest.TestCase):
 class TestBuildProtoAndLinkHandling(unittest.TestCase):
     def setUp(self) -> None:
         bazelcache.clear()
+        Build._protoNames.clear()
 
     def _ctx(self) -> BazelBuildVisitorContext:
         bb = BazelBuild("")
@@ -430,6 +432,125 @@ class TestBuildProtoAndLinkHandling(unittest.TestCase):
         self.assertIs(ctx.current, kept)
         self.assertIs(ctx.next_current, kept)
         self.assertGreater(len(kept.deps), 0)  # type: ignore
+
+    def test_handle_protobuf_header_creates_complete_cc_proto_stack(self) -> None:
+        ctx = self._ctx()
+        proto_input = BuildTarget("echo.proto", ("echo.proto", None)).markAsFile()
+        out = BuildTarget("echo.pb.h", ("echo.pb.h", None))
+        build = Build([out], Rule("CUSTOM_COMMAND"), [proto_input], [])
+        build.vars["COMMAND"] = "/usr/bin/bin/protoc something"
+        parent = ctx.current
+
+        self.assertTrue(build.handleRuleProducedForBazelGen(ctx, out, "cmd"))
+
+        proto = next(t for t in ctx.bazelbuild.bazelTargets if t.name == "echo_proto")
+        cc_proto = next(t for t in ctx.bazelbuild.bazelTargets if t.name == "echo_cc_proto")
+        self.assertIsInstance(proto, BazelProtoLibrary)
+        self.assertIsInstance(cc_proto, BazelCCProtoLibrary)
+        self.assertIn(proto, cc_proto.deps)
+        self.assertIn(cc_proto, parent.deps)  # type: ignore[union-attr]
+        self.assertEqual(
+            [":echo.proto"],
+            sorted(src.name for src in proto.srcs),  # type: ignore[attr-defined]
+        )
+
+    def test_handle_grpc_protobuf_header_creates_complete_grpc_proto_stack(self) -> None:
+        ctx = self._ctx()
+        proto_input = BuildTarget("echo.proto", ("echo.proto", None)).markAsFile()
+        out = BuildTarget("echo.grpc.pb.h", ("echo.grpc.pb.h", None))
+        build = Build([out], Rule("CUSTOM_COMMAND"), [proto_input], [])
+        build.vars["COMMAND"] = "/usr/bin/bin/protoc something"
+        parent = ctx.current
+
+        self.assertTrue(build.handleRuleProducedForBazelGen(ctx, out, "cmd"))
+
+        proto = next(t for t in ctx.bazelbuild.bazelTargets if t.name == "echo_proto")
+        cc_proto = next(t for t in ctx.bazelbuild.bazelTargets if t.name == "echo_cc_proto")
+        grpc = next(t for t in ctx.bazelbuild.bazelTargets if t.name == "echo_cc_grpc")
+        self.assertIsInstance(proto, BazelProtoLibrary)
+        self.assertIsInstance(cc_proto, BazelCCProtoLibrary)
+        self.assertIsInstance(grpc, BazelGRPCCCProtoLibrary)
+        self.assertIn(proto, cc_proto.deps)
+        self.assertIn(proto, grpc.srcs)
+        self.assertIn(cc_proto, grpc.deps)
+        self.assertIn(grpc, parent.deps)  # type: ignore[union-attr]
+
+    def test_grpc_protobuf_header_uses_proto_input_name(self) -> None:
+        ctx = self._ctx()
+        proto_input = BuildTarget("echo.proto", ("echo.proto", None)).markAsFile()
+        out = BuildTarget("test_echo.grpc.pb.h", ("test_echo.grpc.pb.h", None))
+        build = Build([out], Rule("CUSTOM_COMMAND"), [proto_input], [])
+        build.vars["COMMAND"] = "/usr/bin/bin/protoc something"
+        parent = ctx.current
+
+        self.assertTrue(build.handleRuleProducedForBazelGen(ctx, out, "cmd"))
+
+        target_names = {t.name for t in ctx.bazelbuild.bazelTargets}
+        self.assertIn("echo_proto", target_names)
+        self.assertIn("echo_cc_proto", target_names)
+        self.assertIn("echo_cc_grpc", target_names)
+        self.assertNotIn("test_echo_proto", target_names)
+        self.assertNotIn("test_echo_cc_proto", target_names)
+        self.assertNotIn("test_echo_cc_grpc", target_names)
+        grpc = next(t for t in ctx.bazelbuild.bazelTargets if t.name == "echo_cc_grpc")
+        self.assertIn(grpc, parent.deps)  # type: ignore[union-attr]
+
+    def test_grpc_protobuf_header_strips_proto_path_components(self) -> None:
+        ctx = self._ctx()
+        proto_input = BuildTarget("protos/echo.proto", ("echo.proto", "protos")).markAsFile()
+        out = BuildTarget("protos/echo.grpc.pb.h", ("echo.grpc.pb.h", "protos"))
+        build = Build([out], Rule("CUSTOM_COMMAND"), [proto_input], [])
+        build.vars["COMMAND"] = "/usr/bin/bin/protoc something"
+
+        self.assertTrue(build.handleRuleProducedForBazelGen(ctx, out, "cmd"))
+
+        target_names = {t.name for t in ctx.bazelbuild.bazelTargets}
+        self.assertIn("echo_proto", target_names)
+        self.assertIn("echo_cc_proto", target_names)
+        self.assertIn("echo_cc_grpc", target_names)
+        self.assertNotIn("protos_echo_proto", target_names)
+        self.assertNotIn("protos_echo_cc_proto", target_names)
+        self.assertNotIn("protos_echo_cc_grpc", target_names)
+
+    def test_grpc_protobuf_header_uses_one_primary_proto_input(self) -> None:
+        ctx = self._ctx()
+        other_input = BuildTarget("other.proto", ("other.proto", None)).markAsFile()
+        proto_input = BuildTarget("echo.proto", ("echo.proto", None)).markAsFile()
+        out = BuildTarget("test_echo.grpc.pb.h", ("test_echo.grpc.pb.h", None))
+        build = Build([out], Rule("CUSTOM_COMMAND"), [other_input, proto_input], [])
+        build.vars["COMMAND"] = "/usr/bin/bin/protoc something"
+
+        self.assertTrue(build.handleRuleProducedForBazelGen(ctx, out, "cmd"))
+
+        proto = next(t for t in ctx.bazelbuild.bazelTargets if t.name == "echo_proto")
+        cc_proto = next(t for t in ctx.bazelbuild.bazelTargets if t.name == "echo_cc_proto")
+        grpc = next(t for t in ctx.bazelbuild.bazelTargets if t.name == "echo_cc_grpc")
+        self.assertEqual(
+            [":echo.proto"],
+            sorted(src.name for src in proto.srcs),  # type: ignore[attr-defined]
+        )
+        self.assertEqual({proto}, cc_proto.deps)
+        self.assertEqual({proto}, grpc.srcs)  # type: ignore[attr-defined]
+        self.assertIn(cc_proto, grpc.deps)
+
+    def test_protobuf_compile_uses_proto_input_from_generated_source(self) -> None:
+        ctx = self._ctx()
+        proto_input = BuildTarget("echo.proto", ("echo.proto", None)).markAsFile()
+        generated_cc = BuildTarget("test_echo.pb.cc", ("test_echo.pb.cc", None))
+        Build([generated_cc], Rule("CUSTOM_COMMAND"), [proto_input], [])
+        out = BuildTarget("test_echo.pb.cc.o", ("test_echo.pb.cc.o", None))
+        build = Build([out], Rule("CXX_COMPILER"), [generated_cc], [])
+        parent = ctx.current
+
+        build._handleCCProtobuf(ctx, out)
+
+        target_names = {t.name for t in ctx.bazelbuild.bazelTargets}
+        self.assertIn("echo_proto", target_names)
+        self.assertIn("echo_cc_proto", target_names)
+        self.assertNotIn("test_echo_proto", target_names)
+        self.assertNotIn("test_echo_cc_proto", target_names)
+        cc_proto = next(t for t in ctx.bazelbuild.bazelTargets if t.name == "echo_cc_proto")
+        self.assertIn(cc_proto, parent.deps)  # type: ignore[union-attr]
 
     def test_handle_grpc_protobuf_header_keeps_current_grpc_context(self) -> None:
         ctx = self._ctx()

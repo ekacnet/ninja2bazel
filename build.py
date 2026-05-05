@@ -1018,11 +1018,7 @@ class Build:
             ctx.next_current = savedCurrent
             # Maybe we still want to continue ... tbd
             return True
-        location = TopLevelGroupingStrategy().getBuildFilenamePath(
-            el, ctx.current.location if ctx.current else ctx.prefix
-        )
-        t = getObject(BazelProtoLibrary, f"{proto}_proto", location)
-        ctx.bazelbuild.bazelTargets.add(t)
+        t = self._getOrCreateProtoLibrary(ctx, el)
         self.setAssociatedBazelTarget(t)
 
         assert el.producedby is not None
@@ -1279,6 +1275,33 @@ class Build:
 
     @classmethod
     def _getProtoName(kls, element: BuildTarget) -> str:
+        name = kls._getRawProtoName(element)
+        if name in kls._protoNames:
+            return kls._protoNames[name]
+
+        logging.debug(f"Getting proto name for {element.shortName} => {name}")
+        arr = name.split(os.path.sep)
+        filename = arr[-1]
+        existingNames = list(kls._protoNames.values())
+
+        for i in sorted(range(-len(arr), 0), reverse=True):
+            logging.debug(
+                f"Checking {name} {arr[i:]} i = {i} location = {element.location}"
+            )
+            filename = kls._normalizeProtoNameParts(arr[i:])
+            if filename == "":
+                continue
+            if filename not in existingNames:
+                kls._protoNames[name] = filename
+                return filename
+        assert False
+
+    @classmethod
+    def _normalizeProtoNameParts(kls, parts: List[str]) -> str:
+        return "_".join(part for part in parts if part not in ("proto", "protos"))
+
+    @classmethod
+    def _getRawProtoName(kls, element: BuildTarget) -> str:
         regex = r"(.*?)(\.grpc)?\.pb\.(cc|h|cc\.o)$"
         # clean extentions
         matches = re.match(regex, element.shortName)
@@ -1297,31 +1320,17 @@ class Build:
 
         if element.location is not None and not name.startswith(element.location):
             # Protobuf files seems not have location (why ?) so it helps normalize the name
-            name = f"{element.location}{name}"
+            name = os.path.join(element.location, name)
 
-        if name in kls._protoNames:
-            return kls._protoNames[name]
-
-        logging.debug(f"Getting proto name for {element.shortName} => {name}")
-        arr = name.split(os.path.sep)
-        filename = arr[-1]
-        existingNames = list(kls._protoNames.values())
-
-        for i in sorted(range(-len(arr), 0), reverse=True):
-            logging.debug(
-                f"Checking {name} {arr[i:]} i = {i} location = {element.location}"
-            )
-            filename = "_".join(arr[i:])
-            if filename not in existingNames:
-                kls._protoNames[name] = filename
-                return filename
-        assert False
+        return name
 
     def _handleGRPCCCProtobuf(self, ctx: BazelBuildVisitorContext, el: BuildTarget):
         assert ctx.current is not None
         # We can rely on self.associatedBazelTarget usually protobuf related target produces multiple files and multiple bazel targets
         # Now that we cache the associated bazel targets there is limited risk to "recreate" the same target
-        proto = self._getProtoName(el)
+        proto = self._getCanonicalProtoName(el)
+        proto_lib = self._getOrCreateProtoLibrary(ctx, el)
+        cc_proto = self._getOrCreateCCProtoLibrary(ctx, el, proto_lib)
 
         location = TopLevelGroupingStrategy().getBuildFilenamePath(
             el, ctx.current.location if ctx.current else ctx.prefix
@@ -1329,27 +1338,29 @@ class Build:
         t: BaseBazelTarget = getObject(
             BazelGRPCCCProtoLibrary, f"{proto}_cc_grpc", location
         )
+        assert isinstance(t, BazelGRPCCCProtoLibrary)
         ctx.bazelbuild.bazelTargets.add(t)
-        for tgt in ctx.bazelbuild.bazelTargets:
-            if tgt.name == f"{proto}_cc_proto":
-                t.addDep(tgt)
-        if not isinstance(ctx.current, (BazelCCProtoLibrary, BazelGRPCCCProtoLibrary)):
+        t.addSrc(proto_lib)
+        t.addDep(cc_proto)
+        if not isinstance(
+            ctx.current,
+            (BazelProtoLibrary, BazelCCProtoLibrary, BazelGRPCCCProtoLibrary),
+        ):
             ctx.current.addDep(t)
         ctx.next_current = t
         ctx.current = t
 
     def _handleCCProtobuf(self, ctx: BazelBuildVisitorContext, el: BuildTarget):
         assert ctx.current is not None
-        proto = self._getProtoName(el)
+        proto = self._getCanonicalProtoName(el)
+        proto_lib = self._getOrCreateProtoLibrary(ctx, el)
+        t = self._getOrCreateCCProtoLibrary(ctx, el, proto_lib)
 
         location = TopLevelGroupingStrategy().getBuildFilenamePath(
             el, ctx.current.location if ctx.current else ctx.prefix
         )
 
-        t: BaseBazelTarget = getObject(
-            BazelCCProtoLibrary, f"{proto}_cc_proto", location
-        )
-        if not isinstance(ctx.current, BazelCCProtoLibrary):
+        if not isinstance(ctx.current, (BazelProtoLibrary, BazelCCProtoLibrary)):
             ctx.current.addDep(t)
         ctx.bazelbuild.bazelTargets.add(t)
         for tgt in ctx.bazelbuild.bazelTargets:
@@ -1358,6 +1369,99 @@ class Build:
                 tgt.addDep(t)
         ctx.next_current = t
         ctx.current = t
+
+    def _getOrCreateProtoLibrary(
+        self, ctx: BazelBuildVisitorContext, el: BuildTarget
+    ) -> BazelProtoLibrary:
+        proto = self._getCanonicalProtoName(el)
+        proto_input = self._getPrimaryProtoInput(el)
+        location = TopLevelGroupingStrategy().getBuildFilenamePath(
+            el, ctx.current.location if ctx.current else ctx.prefix
+        )
+        t = getObject(BazelProtoLibrary, f"{proto}_proto", location)
+        assert isinstance(t, BazelProtoLibrary)
+        ctx.bazelbuild.bazelTargets.add(t)
+        if proto_input is not None:
+            for paramName, paramValue in proto_input.bazelAdditionalParameters.items():
+                logging.info(
+                    f"Setting {paramName} to {paramValue} on {proto_input.name}"
+                )
+                t.__setattr__(paramName, paramValue)
+            t.addSrc(
+                self._genExportedFile(
+                    filename=_relpath_for_bazel(proto_input.name, ctx.rootdir),
+                    locationCaller=t.location,
+                    ctx=ctx,
+                )
+            )
+        return t
+
+    def _getOrCreateCCProtoLibrary(
+        self,
+        ctx: BazelBuildVisitorContext,
+        el: BuildTarget,
+        proto_lib: BazelProtoLibrary,
+    ) -> BazelCCProtoLibrary:
+        proto = self._getCanonicalProtoName(el)
+        location = TopLevelGroupingStrategy().getBuildFilenamePath(
+            el, ctx.current.location if ctx.current else ctx.prefix
+        )
+        t = getObject(BazelCCProtoLibrary, f"{proto}_cc_proto", location)
+        assert isinstance(t, BazelCCProtoLibrary)
+        t.addDep(proto_lib)
+        ctx.bazelbuild.bazelTargets.add(t)
+        return t
+
+    def _getCanonicalProtoName(self, el: BuildTarget) -> str:
+        proto_input = self._getPrimaryProtoInput(el)
+        if proto_input is not None:
+            return self._getProtoName(proto_input)
+        return self._getProtoName(el)
+
+    def _getPrimaryProtoInput(self, el: BuildTarget) -> Optional[BuildTarget]:
+        proto_inputs = self._getProtoInputs()
+        if len(proto_inputs) == 0:
+            return None
+        if len(proto_inputs) == 1:
+            return proto_inputs[0]
+
+        generated_name = self._getRawProtoName(el)
+        matches = [
+            proto_input
+            for proto_input in proto_inputs
+            if self._protoNamesMatch(generated_name, self._getProtoName(proto_input))
+        ]
+        if len(matches) == 1:
+            return matches[0]
+
+        logging.warning(
+            f"Could not identify a unique proto input for {el.name}; "
+            f"candidates are {[i.name for i in proto_inputs]}"
+        )
+        return None
+
+    def _protoNamesMatch(self, generated_name: str, proto_name: str) -> bool:
+        return generated_name == proto_name or generated_name.endswith(f"_{proto_name}")
+
+    def _getProtoInputs(self) -> List[BuildTarget]:
+        proto_inputs = [i for i in self._inputs if i.name.endswith(".proto")]
+        for input_target in self._inputs:
+            if input_target.producedby is None:
+                continue
+            proto_inputs.extend(
+                i
+                for i in input_target.producedby._inputs
+                if i.name.endswith(".proto")
+            )
+
+        ret = []
+        seen = set()
+        for proto_input in proto_inputs:
+            if proto_input.name in seen:
+                continue
+            seen.add(proto_input.name)
+            ret.append(proto_input)
+        return ret
 
     def _handleCPPLinkExecutableCommand(
         self, el: BuildTarget, cmd: str, ctx: BazelBuildVisitorContext
