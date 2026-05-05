@@ -988,6 +988,9 @@ class BazelCCProtoLibrary(BaseBazelTarget):
     def __init__(self, name: str, location: str):
         super().__init__("cc_proto_library", name, location)
 
+    def getGlobalImport(self) -> str:
+        return 'load("@com_google_protobuf//bazel:cc_proto_library.bzl", "cc_proto_library")'
+
     def addDep(self, dep: Union[BaseBazelTarget, BazelCCImport]):
         assert isinstance(dep, BazelProtoLibrary) or isinstance(dep, BazelExternalDep)
         self.deps.add(dep)
