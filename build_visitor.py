@@ -32,7 +32,15 @@ class BuildVisitor:
                         f"Skipping non phony top level target that is not used by anything: {el}"
                     )
                     return False
-            rawCmd = build.getCoreCommand()
+            rawCmd = None
+            if build.rulename.name == "CUSTOM_COMMAND":
+                generator_commands = build.getGeneratorCommandsForTarget(el)
+                if len(generator_commands) > 0:
+                    rawCmd = generator_commands[-1]
+                else:
+                    rawCmd = build.getCoreCommand()
+            else:
+                rawCmd = build.getCoreCommand()
 
             if rawCmd is None and build.rulename.name != "CUSTOM_COMMAND":
                 logging.warning(f"{el} has no valid command {build.getInputs()}")

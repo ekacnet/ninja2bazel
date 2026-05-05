@@ -2,6 +2,7 @@ import hashlib
 import logging
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -422,7 +423,10 @@ class NinjaParser:
         build.vars.update(build.rulename.vars)
         build.vars.update(vars)
 
-        self.buildEdges.append(build)
+        split_builds = build.splitByGeneratorCommands()
+        if len(split_builds) != 1 or split_builds[0] is not build:
+            build.detach()
+        self.buildEdges.extend(split_builds)
 
     def handleVariable(self, name: str, value: str):
         self.vars[self.currentContext][name] = value
@@ -443,13 +447,18 @@ class NinjaParser:
         cacheDirBase = f"{os.environ['HOME']}/.cache/ninja2bazel/{subDir}"
         os.makedirs(cacheDirBase, exist_ok=True)
 
-        coreRet = build.getCoreCommand()
         outputs = set()
         workDir = build.vars.get("cmake_ninja_workdir", "")
         for o in build.outputs:
             outputs.add(o.name.replace(workDir, ""))
 
-        if coreRet is None:
+        generatorCommands = build.getGeneratorCommandsForTarget(target)
+        if len(generatorCommands) == 0:
+            coreRet = build.getCoreCommand()
+            if coreRet is not None:
+                generatorCommands = [coreRet]
+
+        if len(generatorCommands) == 0:
             if " cp " in build.vars.get(
                 "COMMAND", ""
             ) or "/bin/cmake" in build.vars.get("COMMAND", ""):
@@ -457,17 +466,18 @@ class NinjaParser:
                     f'Command for {target.name}: {build.vars.get("COMMAND")} is not a "core" one'
                 )
             return
-        cmd, runDir = coreRet
-        cmd = cmd.strip()
-        if cmd.startswith("cp "):
+        if all(cmd.strip().startswith("cp ") for cmd, _ in generatorCommands):
             return
 
-        cmd = cmd.strip()
         os.environ["PYTHONPATH"] = (
             os.environ.get("PYTHONPATH", "") + ":" + self.codeRootDir
         )
-        exe = cmd.split(" ")
-        if exe[0].endswith("/mono"):
+        generatorCommands = [
+            (self._normalizeGeneratorCommand(cmd), runDir)
+            for cmd, runDir in generatorCommands
+        ]
+        exes = [shlex.split(cmd)[0] for cmd, _ in generatorCommands if cmd.strip()]
+        if len(exes) > 0 and all(exe.endswith("/mono") for exe in exes):
             for f in outputs:
                 self.generatedFiles[f] = (
                     None,
@@ -477,47 +487,71 @@ class NinjaParser:
             # skip mono all togother
             # Should generate empty files
             return
-        if exe[0].endswith("/protoc"):
+        if len(exes) > 0 and all(exe.endswith("/protoc") for exe in exes):
             for f in outputs:
                 self.generatedFiles[f] = (build, None)
             # Should generate empty files
             # skip protoc
             return
-        if exe[0].endswith(".py"):
-            cmd = f"python3 {cmd}"
+        cmd = self._makeGeneratorShellCommand(generatorCommands)
+        if cmd == "":
+            return
 
         if (cmd, workDir) in self.ran:
             return
         else:
             self.ran.add((cmd, workDir))
-        cwd = os.getcwd()
-        os.chdir(tempDir)
-
-        if runDir is not None:
-            cmd = f"mkdir -p {runDir} && cd {runDir} && {cmd}"
-
         sha1cmd = hashlib.sha1()
         sha1cmd.update(cmd.encode())
         sha1 = sha1cmd.hexdigest()
 
         # We want to hash first before replacing workdir by tempdir
-        cmd = re.sub(rf"{workDir}", f"{tempDir}/", cmd)
+        if workDir != "":
+            cmd = re.sub(rf"{workDir}", f"{tempDir}/", cmd)
 
         cacheDir = f"{cacheDirBase}/{sha1}"
-        if os.path.exists(cacheDir):
-            logging.info(f"Using cache for {cmd} SHA1:{sha1}")
-            _copyFilesBackNForth(cacheDir, tempDir)
-        else:
-            logging.info(f"Running in {tempDir} {cmd} SHA1:{sha1}")
-            res = subprocess.run(cmd, shell=True)
-            if res.returncode != 0:
-                logging.warn(f"Got an exception when trying to run {cmd} in {tempDir}")
-                return
+        cwd = os.getcwd()
+        os.chdir(tempDir)
+        try:
+            for output in outputs:
+                outputDir = os.path.dirname(output)
+                if outputDir != "":
+                    os.makedirs(outputDir, exist_ok=True)
+            if os.path.exists(cacheDir):
+                logging.info(f"Using cache for {cmd} SHA1:{sha1}")
+                _copyFilesBackNForth(cacheDir, tempDir)
+            else:
+                logging.info(f"Running in {tempDir} {cmd} SHA1:{sha1}")
+                res = subprocess.run(cmd, shell=True)
+                if res.returncode != 0:
+                    logging.warn(f"Got an exception when trying to run {cmd} in {tempDir}")
+                    return
 
-            _copyFilesBackNForth(tempDir, cacheDir)
-
-        os.chdir(cwd)
+                _copyFilesBackNForth(tempDir, cacheDir)
+        finally:
+            os.chdir(cwd)
         return tempDir
+
+    def _normalizeGeneratorCommand(self, cmd: str) -> str:
+        parts = shlex.split(cmd)
+        if len(parts) > 0 and parts[0].endswith(".py"):
+            return f"python3 {cmd}"
+        return cmd
+
+    def _makeGeneratorShellCommand(
+        self, generatorCommands: List[Tuple[str, Optional[str]]]
+    ) -> str:
+        parts = []
+        for cmd, runDir in generatorCommands:
+            cmd = cmd.strip()
+            if cmd == "":
+                continue
+            if runDir is not None and runDir != "":
+                quotedRunDir = shlex.quote(runDir)
+                parts.append(f"(mkdir -p {quotedRunDir} && cd {quotedRunDir} && {cmd})")
+            else:
+                parts.append(f"({cmd})")
+        return " && ".join(parts)
 
     def getCCImportForExternalDep(self, target: BuildTarget) -> Optional[BuildTarget]:
         logging.debug(f"Checking {target.name} as part of CCimport")
