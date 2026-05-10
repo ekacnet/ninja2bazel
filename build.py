@@ -452,6 +452,13 @@ class Build:
 
         self.vars: Dict[str, str] = {}
 
+    def detach(self) -> None:
+        for target in list(self._inputs) + list(self.depends):
+            target.usedbybuilds = [build for build in target.usedbybuilds if build is not self]
+        for output in self.outputs:
+            if output.producedby is self:
+                output.producedby = None
+
     def getInputs(self) -> List[BuildTarget]:
         return self._inputs
 
@@ -1018,11 +1025,7 @@ class Build:
             ctx.next_current = savedCurrent
             # Maybe we still want to continue ... tbd
             return True
-        location = TopLevelGroupingStrategy().getBuildFilenamePath(
-            el, ctx.current.location if ctx.current else ctx.prefix
-        )
-        t = getObject(BazelProtoLibrary, f"{proto}_proto", location)
-        ctx.bazelbuild.bazelTargets.add(t)
+        t = self._getOrCreateProtoLibrary(ctx, el)
         self.setAssociatedBazelTarget(t)
 
         assert el.producedby is not None
@@ -1279,6 +1282,33 @@ class Build:
 
     @classmethod
     def _getProtoName(kls, element: BuildTarget) -> str:
+        name = kls._getRawProtoName(element)
+        if name in kls._protoNames:
+            return kls._protoNames[name]
+
+        logging.debug(f"Getting proto name for {element.shortName} => {name}")
+        arr = name.split(os.path.sep)
+        filename = arr[-1]
+        existingNames = list(kls._protoNames.values())
+
+        for i in sorted(range(-len(arr), 0), reverse=True):
+            logging.debug(
+                f"Checking {name} {arr[i:]} i = {i} location = {element.location}"
+            )
+            filename = kls._normalizeProtoNameParts(arr[i:])
+            if filename == "":
+                continue
+            if filename not in existingNames:
+                kls._protoNames[name] = filename
+                return filename
+        assert False
+
+    @classmethod
+    def _normalizeProtoNameParts(kls, parts: List[str]) -> str:
+        return "_".join(part for part in parts if part not in ("proto", "protos"))
+
+    @classmethod
+    def _getRawProtoName(kls, element: BuildTarget) -> str:
         regex = r"(.*?)(\.grpc)?\.pb\.(cc|h|cc\.o)$"
         # clean extentions
         matches = re.match(regex, element.shortName)
@@ -1297,31 +1327,17 @@ class Build:
 
         if element.location is not None and not name.startswith(element.location):
             # Protobuf files seems not have location (why ?) so it helps normalize the name
-            name = f"{element.location}{name}"
+            name = os.path.join(element.location, name)
 
-        if name in kls._protoNames:
-            return kls._protoNames[name]
-
-        logging.debug(f"Getting proto name for {element.shortName} => {name}")
-        arr = name.split(os.path.sep)
-        filename = arr[-1]
-        existingNames = list(kls._protoNames.values())
-
-        for i in sorted(range(-len(arr), 0), reverse=True):
-            logging.debug(
-                f"Checking {name} {arr[i:]} i = {i} location = {element.location}"
-            )
-            filename = "_".join(arr[i:])
-            if filename not in existingNames:
-                kls._protoNames[name] = filename
-                return filename
-        assert False
+        return name
 
     def _handleGRPCCCProtobuf(self, ctx: BazelBuildVisitorContext, el: BuildTarget):
         assert ctx.current is not None
         # We can rely on self.associatedBazelTarget usually protobuf related target produces multiple files and multiple bazel targets
         # Now that we cache the associated bazel targets there is limited risk to "recreate" the same target
-        proto = self._getProtoName(el)
+        proto = self._getCanonicalProtoName(el)
+        proto_lib = self._getOrCreateProtoLibrary(ctx, el)
+        cc_proto = self._getOrCreateCCProtoLibrary(ctx, el, proto_lib)
 
         location = TopLevelGroupingStrategy().getBuildFilenamePath(
             el, ctx.current.location if ctx.current else ctx.prefix
@@ -1329,26 +1345,30 @@ class Build:
         t: BaseBazelTarget = getObject(
             BazelGRPCCCProtoLibrary, f"{proto}_cc_grpc", location
         )
+        assert isinstance(t, BazelGRPCCCProtoLibrary)
         ctx.bazelbuild.bazelTargets.add(t)
-        for tgt in ctx.bazelbuild.bazelTargets:
-            if tgt.name == f"{proto}_cc_proto":
-                t.addDep(tgt)
-        ctx.current.addDep(t)
+        t.addSrc(proto_lib)
+        t.addDep(cc_proto)
+        if not isinstance(
+            ctx.current,
+            (BazelProtoLibrary, BazelCCProtoLibrary, BazelGRPCCCProtoLibrary),
+        ):
+            ctx.current.addDep(t)
         ctx.next_current = t
         ctx.current = t
 
     def _handleCCProtobuf(self, ctx: BazelBuildVisitorContext, el: BuildTarget):
         assert ctx.current is not None
-        proto = self._getProtoName(el)
+        proto = self._getCanonicalProtoName(el)
+        proto_lib = self._getOrCreateProtoLibrary(ctx, el)
+        t = self._getOrCreateCCProtoLibrary(ctx, el, proto_lib)
 
         location = TopLevelGroupingStrategy().getBuildFilenamePath(
             el, ctx.current.location if ctx.current else ctx.prefix
         )
 
-        t: BaseBazelTarget = getObject(
-            BazelCCProtoLibrary, f"{proto}_cc_proto", location
-        )
-        ctx.current.addDep(t)
+        if not isinstance(ctx.current, (BazelProtoLibrary, BazelCCProtoLibrary)):
+            ctx.current.addDep(t)
         ctx.bazelbuild.bazelTargets.add(t)
         for tgt in ctx.bazelbuild.bazelTargets:
             if tgt.name == f"{proto}_cc_grpc":
@@ -1356,6 +1376,99 @@ class Build:
                 tgt.addDep(t)
         ctx.next_current = t
         ctx.current = t
+
+    def _getOrCreateProtoLibrary(
+        self, ctx: BazelBuildVisitorContext, el: BuildTarget
+    ) -> BazelProtoLibrary:
+        proto = self._getCanonicalProtoName(el)
+        proto_input = self._getPrimaryProtoInput(el)
+        location = TopLevelGroupingStrategy().getBuildFilenamePath(
+            el, ctx.current.location if ctx.current else ctx.prefix
+        )
+        t = getObject(BazelProtoLibrary, f"{proto}_proto", location)
+        assert isinstance(t, BazelProtoLibrary)
+        ctx.bazelbuild.bazelTargets.add(t)
+        if proto_input is not None:
+            for paramName, paramValue in proto_input.bazelAdditionalParameters.items():
+                logging.info(
+                    f"Setting {paramName} to {paramValue} on {proto_input.name}"
+                )
+                t.__setattr__(paramName, paramValue)
+            t.addSrc(
+                self._genExportedFile(
+                    filename=_relpath_for_bazel(proto_input.name, ctx.rootdir),
+                    locationCaller=t.location,
+                    ctx=ctx,
+                )
+            )
+        return t
+
+    def _getOrCreateCCProtoLibrary(
+        self,
+        ctx: BazelBuildVisitorContext,
+        el: BuildTarget,
+        proto_lib: BazelProtoLibrary,
+    ) -> BazelCCProtoLibrary:
+        proto = self._getCanonicalProtoName(el)
+        location = TopLevelGroupingStrategy().getBuildFilenamePath(
+            el, ctx.current.location if ctx.current else ctx.prefix
+        )
+        t = getObject(BazelCCProtoLibrary, f"{proto}_cc_proto", location)
+        assert isinstance(t, BazelCCProtoLibrary)
+        t.addDep(proto_lib)
+        ctx.bazelbuild.bazelTargets.add(t)
+        return t
+
+    def _getCanonicalProtoName(self, el: BuildTarget) -> str:
+        proto_input = self._getPrimaryProtoInput(el)
+        if proto_input is not None:
+            return self._getProtoName(proto_input)
+        return self._getProtoName(el)
+
+    def _getPrimaryProtoInput(self, el: BuildTarget) -> Optional[BuildTarget]:
+        proto_inputs = self._getProtoInputs()
+        if len(proto_inputs) == 0:
+            return None
+        if len(proto_inputs) == 1:
+            return proto_inputs[0]
+
+        generated_name = self._getRawProtoName(el)
+        matches = [
+            proto_input
+            for proto_input in proto_inputs
+            if self._protoNamesMatch(generated_name, self._getProtoName(proto_input))
+        ]
+        if len(matches) == 1:
+            return matches[0]
+
+        logging.warning(
+            f"Could not identify a unique proto input for {el.name}; "
+            f"candidates are {[i.name for i in proto_inputs]}"
+        )
+        return None
+
+    def _protoNamesMatch(self, generated_name: str, proto_name: str) -> bool:
+        return generated_name == proto_name or generated_name.endswith(f"_{proto_name}")
+
+    def _getProtoInputs(self) -> List[BuildTarget]:
+        proto_inputs = [i for i in self._inputs if i.name.endswith(".proto")]
+        for input_target in self._inputs:
+            if input_target.producedby is None:
+                continue
+            proto_inputs.extend(
+                i
+                for i in input_target.producedby._inputs
+                if i.name.endswith(".proto")
+            )
+
+        ret = []
+        seen = set()
+        for proto_input in proto_inputs:
+            if proto_input.name in seen:
+                continue
+            seen.add(proto_input.name)
+            ret.append(proto_input)
+        return ret
 
     def _handleCPPLinkExecutableCommand(
         self, el: BuildTarget, cmd: str, ctx: BazelBuildVisitorContext
@@ -1676,6 +1789,206 @@ class Build:
                 runDir = runDir.strip()
             return (cmd, runDir)
         return None
+
+    def getGeneratorCommands(self) -> List[Tuple[str, Optional[str]]]:
+        commands = []
+        for group in self.getGeneratorCommandGroups():
+            commands.extend(group)
+        return commands
+
+    def getGeneratorCommandsForTarget(
+        self, target: BuildTarget
+    ) -> List[Tuple[str, Optional[str]]]:
+        command_groups = self.getGeneratorCommandGroups()
+        if len(command_groups) == 0:
+            return []
+
+        workDir = self.vars.get("cmake_ninja_workdir", "")
+        for command_group in command_groups:
+            if self._commandGroupMentionsTarget(command_group, target, workDir):
+                return command_group
+        return []
+
+    def getGeneratorCommandGroups(self) -> List[List[Tuple[str, Optional[str]]]]:
+        command = self.rulename.vars.get("command")
+        if command is None:
+            return []
+        command = self._resolveName(command, ["in", "out", "TARGET_FILE"])
+        workDir = self.vars.get("cmake_ninja_workdir", "")
+        runDir = None
+        command_groups = []
+        pending_setup_commands = []
+
+        for raw_cmd in command.split("&&"):
+            cmd = raw_cmd.strip()
+            if cmd == "":
+                continue
+            if cmd.startswith("cd "):
+                runDir = self._getRunDir(cmd[3:].strip(), workDir)
+                continue
+            if self._isExcludedGeneratorCommand(cmd):
+                pending_setup_commands = []
+                continue
+            if self._isGeneratorSetupCommand(cmd):
+                pending_setup_commands.append((cmd, runDir))
+                continue
+            if not self._isGeneratorCommand(cmd, workDir):
+                continue
+            command_group = pending_setup_commands + [(cmd, runDir)]
+            pending_setup_commands = []
+            command_groups.append(command_group)
+        return command_groups
+
+    def splitByGeneratorCommands(self) -> List["Build"]:
+        if self.rulename.name != "CUSTOM_COMMAND" or len(self.outputs) <= 1:
+            return [self]
+
+        command_groups = self.getGeneratorCommandGroups()
+        if len(command_groups) <= 1:
+            return [self]
+
+        workDir = self.vars.get("cmake_ninja_workdir", "")
+        remaining_outputs = set(self.outputs)
+        assignments: List[Tuple[List[Tuple[str, Optional[str]]], List[BuildTarget]]] = []
+
+        for command_group in command_groups:
+            candidate_outputs = [
+                output
+                for output in self.outputs
+                if output in remaining_outputs
+                and self._commandGroupMentionsTarget(command_group, output, workDir)
+            ]
+            if len(candidate_outputs) == 0:
+                continue
+            for output in candidate_outputs:
+                remaining_outputs.remove(output)
+            assignments.append((command_group, candidate_outputs))
+
+        if len(remaining_outputs) != 0 or len(assignments) <= 1:
+            return [self]
+
+        split_builds = []
+        for command_group, outputs in assignments:
+            split_rule = Rule(self.rulename.name)
+            split_rule.vars = dict(self.rulename.vars)
+            split_rule.vars["command"] = self._formatGeneratorCommandGroup(
+                command_group, workDir
+            )
+
+            split_inputs = list(self._inputs)
+            for output in self.outputs:
+                if output in outputs:
+                    continue
+                if (
+                    self._commandGroupMentionsTarget(command_group, output, workDir)
+                    and output not in split_inputs
+                ):
+                    split_inputs.append(output)
+
+            split_build = Build(outputs, split_rule, split_inputs, self.depends)
+            split_build.vars.update(self.vars)
+            split_build.vars["COMMAND"] = split_rule.vars["command"]
+            split_builds.append(split_build)
+
+        return split_builds
+
+    def _getRunDir(self, path: str, workDir: str) -> str:
+        if workDir != "":
+            normalizedWorkDir = workDir
+            if not normalizedWorkDir.endswith(os.path.sep):
+                normalizedWorkDir = f"{normalizedWorkDir}{os.path.sep}"
+            if path.startswith(normalizedWorkDir):
+                return path[len(normalizedWorkDir) :]
+            if path == workDir.rstrip(os.path.sep):
+                return ""
+        return path
+
+    def _isGeneratorSetupCommand(self, cmd: str) -> bool:
+        if cmd.startswith("mkdir "):
+            return True
+        return "cmake -E make_directory" in cmd
+
+    def _isExcludedGeneratorCommand(self, cmd: str) -> bool:
+        if "/bin/cmake" in cmd:
+            return True
+        try:
+            parts = shlex.split(cmd)
+        except ValueError:
+            return False
+        if len(parts) == 0:
+            return False
+        return os.path.basename(parts[0]) == "cp"
+
+    def _isGeneratorCommand(self, cmd: str, workDir: str) -> bool:
+        if self.rulename.name != "CUSTOM_COMMAND":
+            return False
+        for target in list(self._inputs) + list(self.outputs):
+            if self._commandMentionsTarget(cmd, target, workDir):
+                return True
+        return False
+
+    def _commandGroupMentionsTarget(
+        self,
+        command_group: List[Tuple[str, Optional[str]]],
+        target: BuildTarget,
+        workDir: str,
+    ) -> bool:
+        return any(
+            self._commandMentionsTarget(cmd, target, workDir)
+            for cmd, _ in command_group
+        )
+
+    def _commandMentionsTarget(self, cmd: str, target: BuildTarget, workDir: str) -> bool:
+        candidates = set(self._targetCommandCandidates(target, workDir))
+        return any(value in candidates for value in self._commandTargetValues(cmd))
+
+    def _commandTargetValues(self, cmd: str) -> List[str]:
+        try:
+            parts = shlex.split(cmd)
+        except ValueError:
+            parts = cmd.split()
+
+        values = []
+        for part in parts:
+            values.append(part)
+            if "=" in part:
+                values.append(part.split("=", 1)[1])
+        return values
+
+    def _targetCommandCandidates(self, target: BuildTarget, workDir: str) -> List[str]:
+        candidates = [target.name, target.shortName]
+        if workDir != "":
+            normalizedWorkDir = workDir
+            if not normalizedWorkDir.endswith(os.path.sep):
+                normalizedWorkDir = f"{normalizedWorkDir}{os.path.sep}"
+            if target.name.startswith(normalizedWorkDir):
+                candidates.append(target.name[len(normalizedWorkDir) :])
+            for candidate in list(candidates):
+                if not candidate.startswith(os.path.sep):
+                    candidates.append(f"{normalizedWorkDir}{candidate}")
+        return candidates
+
+    def _formatGeneratorCommandGroup(
+        self,
+        command_group: List[Tuple[str, Optional[str]]],
+        workDir: str,
+    ) -> str:
+        parts = []
+        current_run_dir = None
+        for cmd, runDir in command_group:
+            if runDir != current_run_dir:
+                current_run_dir = runDir
+                if runDir is not None:
+                    parts.append(f"cd {self._expandRunDir(runDir, workDir)}")
+            parts.append(cmd)
+        return " && ".join(parts)
+
+    def _expandRunDir(self, runDir: str, workDir: str) -> str:
+        if runDir == "":
+            return workDir.rstrip(os.path.sep)
+        if os.path.isabs(runDir) or workDir == "":
+            return runDir
+        return os.path.join(workDir, runDir)
 
     def _resolveName(self, name: str, exceptVars: Optional[List[str]] = None) -> str:
         regex = r"\$\{?([\w+]+)\}?"

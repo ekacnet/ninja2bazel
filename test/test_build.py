@@ -5,7 +5,13 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from bazel import BazelCCImport, BazelGenRuleTarget
+from bazel import (
+    BazelCCImport,
+    BazelCCProtoLibrary,
+    BazelGenRuleTarget,
+    BazelGRPCCCProtoLibrary,
+    BazelProtoLibrary,
+)
 from bazel import BazelTarget, BazelBuild, getObject, bazelcache
 from build import BazelBuildVisitorContext, Build, BuildTarget, Rule
 from ninjabuild import canBePruned
@@ -171,6 +177,151 @@ class TestBuildUtils(unittest.TestCase):
             cmd, run_dir = build.getCoreCommand()
             self.assertTrue(cmd.strip().startswith("gcc -c"))
             self.assertEqual(run_dir, "/build")
+
+    def test_get_generator_commands_extracts_all_commands_with_run_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            tmp_path = Path(td)
+            work_dir = tmp_path / "build"
+            script = tmp_path / "protocol_version.py"
+            source = tmp_path / "ProtocolVersions.cmake"
+            template = tmp_path / "ProtocolVersion.h.template"
+            out = BuildTarget("flow/include/flow/ProtocolVersion.h", ("ProtocolVersion.h", None))
+            rule = Rule("CUSTOM_COMMAND")
+            build = Build(
+                [out],
+                rule,
+                [
+                    BuildTarget(str(script), (script.name, None)),
+                    BuildTarget(str(template), (template.name, None)),
+                    BuildTarget(str(source), (source.name, None)),
+                ],
+                [],
+            )
+            build.vars["cmake_ninja_workdir"] = f"{work_dir}/"
+            rule.vars["command"] = (
+                f"cd {work_dir}/flow && "
+                f"python3 {script} --source {source} --generator cpp "
+                f"--output {work_dir}/flow/include/flow/ProtocolVersion.h && "
+                f"python3 {script} --source {source} --generator java "
+                f"--output {work_dir}/flow/include/flow/ProtocolVersion.java && "
+                f"python3 {script} --source {source} --generator python "
+                f"--output {work_dir}/flow/include/flow/protocol_version.py"
+            )
+
+            commands = build.getGeneratorCommands()
+
+            self.assertEqual(3, len(commands))
+            self.assertEqual(["flow", "flow", "flow"], [run_dir for _, run_dir in commands])
+            self.assertTrue(all(str(script) in cmd for cmd, _ in commands))
+
+    def test_get_generator_commands_for_target_selects_matching_command(self) -> None:
+        work_dir = "/tmp/build/"
+        out_a = BuildTarget("generated/a.txt", ("a.txt", None))
+        out_b = BuildTarget("generated/b.txt", ("b.txt", None))
+        rule = Rule("CUSTOM_COMMAND")
+        build = Build([out_a, out_b], rule, [], [])
+        build.vars["cmake_ninja_workdir"] = work_dir
+        rule.vars["command"] = (
+            "python3 gen.py --output /tmp/build/generated/a.txt && "
+            "python3 gen.py --generated-file=/tmp/build/generated/b.txt"
+        )
+
+        commands = build.getGeneratorCommandsForTarget(out_b)
+
+        self.assertEqual(
+            [("python3 gen.py --generated-file=/tmp/build/generated/b.txt", None)],
+            commands,
+        )
+
+    def test_get_generator_commands_for_target_ignores_template_basename(self) -> None:
+        work_dir = "/tmp/build/"
+        template = BuildTarget(
+            "/src/flow/protocolversion/ProtocolVersion.h.template",
+            ("ProtocolVersion.h.template", None),
+        ).markAsFile()
+        source = BuildTarget(
+            "/src/flow/ProtocolVersions.cmake",
+            ("ProtocolVersions.cmake", None),
+        ).markAsFile()
+        out = BuildTarget("flow/include/flow/ProtocolVersion.h", ("ProtocolVersion.h", None))
+        rule = Rule("CUSTOM_COMMAND")
+        build = Build([out], rule, [template, source], [])
+        build.vars["cmake_ninja_workdir"] = work_dir
+        rule.vars["command"] = (
+            "cd /tmp/build/flow && "
+            "python3 /src/flow/protocolversion/protocol_version.py "
+            "--source /src/flow/ProtocolVersions.cmake --generator cpp "
+            "--output /tmp/build/flow/include/flow/ProtocolVersion.h && "
+            "python3 /src/flow/protocolversion/protocol_version.py "
+            "/src/flow/protocolversion/ProtocolVersion.h.template "
+            "--source /src/flow/ProtocolVersions.cmake --generator python "
+            "--output /tmp/build/flow/include/flow/protocol_version.py"
+        )
+
+        commands = build.getGeneratorCommandsForTarget(out)
+
+        self.assertEqual(1, len(commands))
+        self.assertIn("--generator cpp", commands[0][0])
+        self.assertIn("ProtocolVersion.h", commands[0][0])
+        self.assertNotIn("--generator python", commands[0][0])
+        self.assertNotIn("--output /tmp/build/flow/include/flow/protocol_version.py", commands[0][0])
+
+    def test_split_by_generator_commands_assigns_outputs_to_commands(self) -> None:
+        work_dir = "/tmp/build/"
+        source = BuildTarget("input.txt", ("input.txt", None)).markAsFile()
+        out_a = BuildTarget("generated/a.txt", ("a.txt", None))
+        out_b = BuildTarget("generated/b.txt", ("b.txt", None))
+        rule = Rule("CUSTOM_COMMAND")
+        build = Build([out_a, out_b], rule, [source], [])
+        build.vars["cmake_ninja_workdir"] = work_dir
+        rule.vars["command"] = (
+            "python3 gen.py input.txt --output /tmp/build/generated/a.txt && "
+            "python3 gen.py /tmp/build/generated/a.txt --output /tmp/build/generated/b.txt"
+        )
+
+        split_builds = build.splitByGeneratorCommands()
+
+        self.assertEqual(
+            [["generated/a.txt"], ["generated/b.txt"]],
+            [[o.name for o in b.outputs] for b in split_builds],
+        )
+        self.assertEqual(
+            "python3 gen.py /tmp/build/generated/a.txt --output /tmp/build/generated/b.txt",
+            split_builds[1].rulename.vars["command"],
+        )
+        self.assertIn(out_a, split_builds[1].getInputs())
+
+    def test_get_generator_commands_excludes_copy_and_cmake_commands(self) -> None:
+        cases = [
+            "cp input.txt generated.txt",
+            "/bin/cp input.txt generated.txt",
+            "/usr/bin/cmake -E copy input.txt generated.txt",
+            "/opt/bin/cmake -E copy input.txt generated.txt",
+        ]
+        for command in cases:
+            with self.subTest(command=command):
+                inp = BuildTarget("input.txt", ("input.txt", None)).markAsFile()
+                out = BuildTarget("generated.txt", ("generated.txt", None))
+                rule = Rule("CUSTOM_COMMAND")
+                build = Build([out], rule, [inp], [])
+                rule.vars["command"] = command
+
+                self.assertEqual([], build.getGeneratorCommands())
+
+    def test_get_generator_commands_does_not_reuse_setup_for_excluded_command(self) -> None:
+        inp = BuildTarget("input.txt", ("input.txt", None)).markAsFile()
+        out = BuildTarget("generated.txt", ("generated.txt", None))
+        rule = Rule("CUSTOM_COMMAND")
+        build = Build([out], rule, [inp], [])
+        rule.vars["command"] = (
+            "mkdir copied && cp input.txt copied/generated.txt && "
+            "python3 gen.py input.txt generated.txt"
+        )
+
+        self.assertEqual(
+            [("python3 gen.py input.txt generated.txt", None)],
+            build.getGeneratorCommands(),
+        )
 
     def test_is_cpp_command(self) -> None:
         cases = [
@@ -340,6 +491,7 @@ class TestBuildFeatures(unittest.TestCase):
 class TestBuildProtoAndLinkHandling(unittest.TestCase):
     def setUp(self) -> None:
         bazelcache.clear()
+        Build._protoNames.clear()
 
     def _ctx(self) -> BazelBuildVisitorContext:
         bb = BazelBuild("")
@@ -357,6 +509,153 @@ class TestBuildProtoAndLinkHandling(unittest.TestCase):
         self.assertIs(ctx.current, kept)
         self.assertIs(ctx.next_current, kept)
         self.assertGreater(len(kept.deps), 0)  # type: ignore
+
+    def test_handle_protobuf_header_creates_complete_cc_proto_stack(self) -> None:
+        ctx = self._ctx()
+        proto_input = BuildTarget("echo.proto", ("echo.proto", None)).markAsFile()
+        out = BuildTarget("echo.pb.h", ("echo.pb.h", None))
+        build = Build([out], Rule("CUSTOM_COMMAND"), [proto_input], [])
+        build.vars["COMMAND"] = "/usr/bin/bin/protoc something"
+        parent = ctx.current
+
+        self.assertTrue(build.handleRuleProducedForBazelGen(ctx, out, "cmd"))
+
+        proto = next(t for t in ctx.bazelbuild.bazelTargets if t.name == "echo_proto")
+        cc_proto = next(t for t in ctx.bazelbuild.bazelTargets if t.name == "echo_cc_proto")
+        self.assertIsInstance(proto, BazelProtoLibrary)
+        self.assertIsInstance(cc_proto, BazelCCProtoLibrary)
+        self.assertIn(proto, cc_proto.deps)
+        self.assertIn(cc_proto, parent.deps)  # type: ignore[union-attr]
+        self.assertEqual(
+            [":echo.proto"],
+            sorted(src.name for src in proto.srcs),  # type: ignore[attr-defined]
+        )
+
+    def test_handle_grpc_protobuf_header_creates_complete_grpc_proto_stack(self) -> None:
+        ctx = self._ctx()
+        proto_input = BuildTarget("echo.proto", ("echo.proto", None)).markAsFile()
+        out = BuildTarget("echo.grpc.pb.h", ("echo.grpc.pb.h", None))
+        build = Build([out], Rule("CUSTOM_COMMAND"), [proto_input], [])
+        build.vars["COMMAND"] = "/usr/bin/bin/protoc something"
+        parent = ctx.current
+
+        self.assertTrue(build.handleRuleProducedForBazelGen(ctx, out, "cmd"))
+
+        proto = next(t for t in ctx.bazelbuild.bazelTargets if t.name == "echo_proto")
+        cc_proto = next(t for t in ctx.bazelbuild.bazelTargets if t.name == "echo_cc_proto")
+        grpc = next(t for t in ctx.bazelbuild.bazelTargets if t.name == "echo_cc_grpc")
+        self.assertIsInstance(proto, BazelProtoLibrary)
+        self.assertIsInstance(cc_proto, BazelCCProtoLibrary)
+        self.assertIsInstance(grpc, BazelGRPCCCProtoLibrary)
+        self.assertIn(proto, cc_proto.deps)
+        self.assertIn(proto, grpc.srcs)
+        self.assertIn(cc_proto, grpc.deps)
+        self.assertIn(grpc, parent.deps)  # type: ignore[union-attr]
+
+    def test_grpc_protobuf_header_uses_proto_input_name(self) -> None:
+        ctx = self._ctx()
+        proto_input = BuildTarget("echo.proto", ("echo.proto", None)).markAsFile()
+        out = BuildTarget("test_echo.grpc.pb.h", ("test_echo.grpc.pb.h", None))
+        build = Build([out], Rule("CUSTOM_COMMAND"), [proto_input], [])
+        build.vars["COMMAND"] = "/usr/bin/bin/protoc something"
+        parent = ctx.current
+
+        self.assertTrue(build.handleRuleProducedForBazelGen(ctx, out, "cmd"))
+
+        target_names = {t.name for t in ctx.bazelbuild.bazelTargets}
+        self.assertIn("echo_proto", target_names)
+        self.assertIn("echo_cc_proto", target_names)
+        self.assertIn("echo_cc_grpc", target_names)
+        self.assertNotIn("test_echo_proto", target_names)
+        self.assertNotIn("test_echo_cc_proto", target_names)
+        self.assertNotIn("test_echo_cc_grpc", target_names)
+        grpc = next(t for t in ctx.bazelbuild.bazelTargets if t.name == "echo_cc_grpc")
+        self.assertIn(grpc, parent.deps)  # type: ignore[union-attr]
+
+    def test_grpc_protobuf_header_strips_proto_path_components(self) -> None:
+        ctx = self._ctx()
+        proto_input = BuildTarget("protos/echo.proto", ("echo.proto", "protos")).markAsFile()
+        out = BuildTarget("protos/echo.grpc.pb.h", ("echo.grpc.pb.h", "protos"))
+        build = Build([out], Rule("CUSTOM_COMMAND"), [proto_input], [])
+        build.vars["COMMAND"] = "/usr/bin/bin/protoc something"
+
+        self.assertTrue(build.handleRuleProducedForBazelGen(ctx, out, "cmd"))
+
+        target_names = {t.name for t in ctx.bazelbuild.bazelTargets}
+        self.assertIn("echo_proto", target_names)
+        self.assertIn("echo_cc_proto", target_names)
+        self.assertIn("echo_cc_grpc", target_names)
+        self.assertNotIn("protos_echo_proto", target_names)
+        self.assertNotIn("protos_echo_cc_proto", target_names)
+        self.assertNotIn("protos_echo_cc_grpc", target_names)
+
+    def test_grpc_protobuf_header_uses_one_primary_proto_input(self) -> None:
+        ctx = self._ctx()
+        other_input = BuildTarget("other.proto", ("other.proto", None)).markAsFile()
+        proto_input = BuildTarget("echo.proto", ("echo.proto", None)).markAsFile()
+        out = BuildTarget("test_echo.grpc.pb.h", ("test_echo.grpc.pb.h", None))
+        build = Build([out], Rule("CUSTOM_COMMAND"), [other_input, proto_input], [])
+        build.vars["COMMAND"] = "/usr/bin/bin/protoc something"
+
+        self.assertTrue(build.handleRuleProducedForBazelGen(ctx, out, "cmd"))
+
+        proto = next(t for t in ctx.bazelbuild.bazelTargets if t.name == "echo_proto")
+        cc_proto = next(t for t in ctx.bazelbuild.bazelTargets if t.name == "echo_cc_proto")
+        grpc = next(t for t in ctx.bazelbuild.bazelTargets if t.name == "echo_cc_grpc")
+        self.assertEqual(
+            [":echo.proto"],
+            sorted(src.name for src in proto.srcs),  # type: ignore[attr-defined]
+        )
+        self.assertEqual({proto}, cc_proto.deps)
+        self.assertEqual({proto}, grpc.srcs)  # type: ignore[attr-defined]
+        self.assertIn(cc_proto, grpc.deps)
+
+    def test_protobuf_compile_uses_proto_input_from_generated_source(self) -> None:
+        ctx = self._ctx()
+        proto_input = BuildTarget("echo.proto", ("echo.proto", None)).markAsFile()
+        generated_cc = BuildTarget("test_echo.pb.cc", ("test_echo.pb.cc", None))
+        Build([generated_cc], Rule("CUSTOM_COMMAND"), [proto_input], [])
+        out = BuildTarget("test_echo.pb.cc.o", ("test_echo.pb.cc.o", None))
+        build = Build([out], Rule("CXX_COMPILER"), [generated_cc], [])
+        parent = ctx.current
+
+        build._handleCCProtobuf(ctx, out)
+
+        target_names = {t.name for t in ctx.bazelbuild.bazelTargets}
+        self.assertIn("echo_proto", target_names)
+        self.assertIn("echo_cc_proto", target_names)
+        self.assertNotIn("test_echo_proto", target_names)
+        self.assertNotIn("test_echo_cc_proto", target_names)
+        cc_proto = next(t for t in ctx.bazelbuild.bazelTargets if t.name == "echo_cc_proto")
+        self.assertIn(cc_proto, parent.deps)  # type: ignore[union-attr]
+
+    def test_handle_grpc_protobuf_header_keeps_current_grpc_context(self) -> None:
+        ctx = self._ctx()
+        current = BazelGRPCCCProtoLibrary("foo_cc_grpc", "proto")
+        ctx.current = current
+        out = BuildTarget("foo.grpc.pb.h", ("foo.grpc.pb.h", "proto"))
+        build = Build([out], Rule("CUSTOM_COMMAND"), [], [])
+        build.vars["COMMAND"] = "/usr/bin/bin/protoc something"
+
+        self.assertTrue(build.handleRuleProducedForBazelGen(ctx, out, "cmd"))
+
+        self.assertIs(ctx.current, current)
+        self.assertIs(ctx.next_current, current)
+        self.assertNotIn(current, current.deps)
+
+    def test_handle_protobuf_header_keeps_current_cc_proto_context(self) -> None:
+        ctx = self._ctx()
+        current = BazelCCProtoLibrary("foo_cc_proto", "proto")
+        ctx.current = current
+        out = BuildTarget("foo.pb.h", ("foo.pb.h", "proto"))
+        build = Build([out], Rule("CUSTOM_COMMAND"), [], [])
+        build.vars["COMMAND"] = "/usr/bin/bin/protoc something"
+
+        self.assertTrue(build.handleRuleProducedForBazelGen(ctx, out, "cmd"))
+
+        self.assertIs(ctx.current, current)
+        self.assertIs(ctx.next_current, current)
+        self.assertNotIn(current, current.deps)
 
     def test_revisit_shared_library_reuses_existing_target(self) -> None:
         ctx = self._ctx()
