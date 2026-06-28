@@ -108,11 +108,51 @@ def select(mapping, **kwargs):
 
 
 def load_lines(build_path: str) -> List[str]:
-    return [
-        line
-        for line in Path(build_path).read_text(encoding="utf-8").splitlines()
-        if line.lstrip().startswith("load(")
-    ]
+    loads: List[str] = []
+    in_load = False
+    paren_depth = 0
+
+    for line in Path(build_path).read_text(encoding="utf-8").splitlines():
+        if in_load:
+            loads.append(line)
+            paren_depth += paren_delta(line)
+            if paren_depth <= 0:
+                in_load = False
+            continue
+
+        if line.lstrip().startswith("load("):
+            loads.append(line)
+            paren_depth = paren_delta(line)
+            in_load = paren_depth > 0
+
+    return loads
+
+
+def paren_delta(line: str) -> int:
+    delta = 0
+    quote: Optional[str] = None
+    escaped = False
+
+    for char in line:
+        if quote is not None:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = None
+            continue
+
+        if char == "#":
+            break
+        if char in {'"', "'"}:
+            quote = char
+        elif char == "(":
+            delta += 1
+        elif char == ")":
+            delta -= 1
+
+    return delta
 
 
 def remember_triple_quoted_strings(source: str) -> None:
