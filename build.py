@@ -1363,10 +1363,6 @@ class Build:
         proto_lib = self._getOrCreateProtoLibrary(ctx, el)
         t = self._getOrCreateCCProtoLibrary(ctx, el, proto_lib)
 
-        location = TopLevelGroupingStrategy().getBuildFilenamePath(
-            el, ctx.current.location if ctx.current else ctx.prefix
-        )
-
         if not isinstance(ctx.current, (BazelProtoLibrary, BazelCCProtoLibrary)):
             ctx.current.addDep(t)
         ctx.bazelbuild.bazelTargets.add(t)
